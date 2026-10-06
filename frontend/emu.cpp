@@ -20,6 +20,7 @@
 #include "menu.h"
 #include "platform.h"
 #include "states.h"
+#include "ui.h"
 
 #ifndef BUILD_NAME
 #define BUILD_NAME "dev"
@@ -28,7 +29,7 @@
 /* Fast forward draws one frame in this many, like lr-gpsp-nspire. */
 #define FAST_FORWARD_DRAW_EVERY 5
 
-#define MESSAGE_Y (SCREEN_H - TEXT_H - 2)
+#define MESSAGE_Y (SCREEN_H - 20)
 #define PICTURE_LEFT ((SCREEN_W - SNES_WIDTH) / 2)
 
 /* The renderer draws whole 8x8 tiles, so it can write up to a tile past the
@@ -395,7 +396,7 @@ bool8 S9xInitUpdate ()
     unsigned screen_bit = 1u << platform_screen_index();
     if (screens_to_clear & screen_bit)
     {
-        draw_clear(COLOR_BLACK);
+        draw_fill(COLOR_BLACK);
         screens_to_clear &= ~screen_bit;
     }
 
@@ -411,13 +412,14 @@ bool8 S9xInitUpdate ()
     return TRUE;
 }
 
-/* Draws text over the frame (see draw_text) and puts it in the frame being
- * shown. */
-static void overlay_text(const char *text, int x, int y, int pad)
+/* Text on a dark plate over the frame, put in the frame being shown. The
+ * plate is opaque: the border around the picture isn't redrawn every frame. */
+static void overlay_text(const char *text, int x, int y, uint16_t color)
 {
-    int len = (int) strlen(text);
-    draw_text(text, COLOR_WHITE, COLOR_BLACK, x, y, pad);
-    platform_frame_copy(x, y, (len > pad ? len : pad) * TEXT_W, TEXT_H);
+    int w = text_width(FONT_SMALL, text) + 6;
+    draw_round_rect(x, y, w, 14, 3, COLOR_PANEL);
+    draw_string(FONT_SMALL, text, x + 3, y + 1, color);
+    platform_frame_copy(x, y, w, 14);
 }
 
 /* Called when the frame is drawn: add the overlays and show it. Only what
@@ -471,14 +473,21 @@ bool8 S9xDeinitUpdate (int, int, bool8)
 
     if (cfg.show_fps)
     {
+        /* Green at full speed, amber below, red below three quarters. */
         char text[24];
-        snprintf(text, sizeof(text), "%u/%u", (unsigned) fps_shown, (unsigned) fps_expected());
-        overlay_text(text, 2, 2, 7);
+        uint32_t expected = fps_expected();
+        snprintf(text, sizeof(text), "%u/%u", (unsigned) fps_shown, (unsigned) expected);
+        overlay_text(text, 0, 1, fps_shown + 1 >= expected ? COLOR_GOOD
+                                 : fps_shown * 4 >= expected * 3 ? COLOR_WARN : COLOR_BAD);
         if (cfg.show_fps == 2 && perf_line[0])
-            overlay_text(perf_line, 2, 2 + TEXT_H, 0);
+            overlay_text(perf_line, 0, 16, COLOR_TEXT);
     }
     if (message_visible)
-        overlay_text(message, 2, MESSAGE_Y, 0);
+    {
+        int rect[4];
+        ui_toast(message, MESSAGE_Y, rect);
+        platform_frame_copy(rect[0], rect[1], rect[2], rect[3]);
+    }
 
     platform_frame_present();
     perf.drawn++;
@@ -829,15 +838,59 @@ static void write_sram(void)
     Memory.SaveSRAM (path);
 }
 
+/* Why the last ROM didn't load, for the message. */
+static const char *load_error = "";
+
+const char *emu_load_error(void)
+{
+    return load_error;
+}
+
+/* Whether a file can be a ROM, before the core sees it: it crashes on files
+ * under 32 KB, and the game list shows every .tns file, documents and
+ * programs too. */
+static bool looks_like_rom(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+    {
+        load_error = "The file can't be opened.";
+        return false;
+    }
+    char head[8] = { 0 };
+    size_t got = fread(head, 1, sizeof(head), f);
+    fseek(f, 0, SEEK_END);
+    long bytes = ftell(f);
+    fclose(f);
+
+    if (got >= 6 && memcmp(head, "*TIMLP", 6) == 0)
+        load_error = "It's a TI-Nspire document, not a SNES ROM.";
+    else if (got >= 4 && memcmp(head, "PRG", 4) == 0)
+        load_error = "It's a program, not a SNES ROM.";
+    else if (bytes < 0x8000)
+        load_error = "It's too small to be a SNES ROM.";
+    else if (bytes > 0x800000 + 0x200)
+        load_error = "It's bigger than 8 MB, the most a SNES ROM can be.";
+    else
+        return true;
+    return false;
+}
+
 int emu_load_game(const char *path)
 {
     char sram_path[800];
 
     snprintf(rom_path, sizeof(rom_path), "%s", path);
+    if (!looks_like_rom(rom_path))
+        return 0;
+    load_error = "Is it a SNES ROM? It may also be too big for the memory free.";
 
-    draw_clear(COLOR_BG);
-    draw_text("Loading...", COLOR_ACTIVE_ITEM, COLOR_BG, 10, 100, 0);
-    draw_text(S9xBasename(rom_path), COLOR_ROM_INFO, COLOR_BG, 10, 112, 0);
+    ui_frame(NULL, NULL);
+    draw_round_rect(30, 92, 260, 50, 7, COLOR_PANEL);
+    draw_round_frame(30, 92, 260, 50, 7, COLOR_PANEL_EDGE);
+    draw_icon(ICON_CART, 44, 104, COLOR_SELECT_EDGE);
+    draw_string(FONT_MEDIUM, "Loading", 64, 100, COLOR_TEXT);
+    draw_string_fit(FONT_SMALL, S9xBasename(rom_path), 64, 120, 216, COLOR_TEXT_DIM);
     platform_present();
 
     if (!Memory.LoadROM (rom_path))
@@ -921,6 +974,7 @@ void emu_reset_game(void)
 struct SpeedTestPart
 {
     const char *name;
+    const char *short_name;   /* for the results screen */
     enum Pace pace;
     uint32_t frameskip_type, frameskip_value;
     uint32_t seconds;
@@ -929,11 +983,11 @@ struct SpeedTestPart
 
 static const struct SpeedTestPart speed_test_parts[] =
 {
-    { "Normal play, frameskip off", PACE_NORMAL, FRAMESKIP_OFF, 0, 10, OUTPUT_BEST },
-    { "No speed limit, every frame drawn", PACE_UNCAPPED_DRAW_ALL, FRAMESKIP_OFF, 0, 5, OUTPUT_BEST },
-    { "Same, other output", PACE_UNCAPPED_DRAW_ALL, FRAMESKIP_OFF, 0, 5, OUTPUT_DMA },
-    { "Same, other output", PACE_UNCAPPED_DRAW_ALL, FRAMESKIP_OFF, 0, 5, OUTPUT_FLIP },
-    { "No speed limit, nothing drawn", PACE_UNCAPPED_DRAW_NONE, FRAMESKIP_OFF, 0, 5, OUTPUT_BEST },
+    { "Normal play, frameskip off", "Normal play", PACE_NORMAL, FRAMESKIP_OFF, 0, 10, OUTPUT_BEST },
+    { "No speed limit, every frame drawn", "No limit", PACE_UNCAPPED_DRAW_ALL, FRAMESKIP_OFF, 0, 5, OUTPUT_BEST },
+    { "Same, other output", "No limit, DMA", PACE_UNCAPPED_DRAW_ALL, FRAMESKIP_OFF, 0, 5, OUTPUT_DMA },
+    { "Same, other output", "No limit, flip", PACE_UNCAPPED_DRAW_ALL, FRAMESKIP_OFF, 0, 5, OUTPUT_FLIP },
+    { "No speed limit, nothing drawn", "Nothing drawn", PACE_UNCAPPED_DRAW_NONE, FRAMESKIP_OFF, 0, 5, OUTPUT_BEST },
 };
 
 #define SPEED_TEST_PARTS (int) (sizeof(speed_test_parts) / sizeof(speed_test_parts[0]))
@@ -943,6 +997,8 @@ void emu_speed_test(int close_after_seconds)
     uint8 *snapshot;
     uint32 snapshot_size;
     char results[SPEED_TEST_PARTS][2][128];
+    struct PerfStats stats[SPEED_TEST_PARTS];
+    int supported[SPEED_TEST_PARTS];
     int done = 0;
 
     /* At the speed the game runs at (the menu runs at normal speed). */
@@ -985,6 +1041,8 @@ void emu_speed_test(int close_after_seconds)
             S9xMainLoop ();
 
         struct PerfStats s = perf_stats(&base, platform_ticks());
+        stats[i] = s;
+        supported[i] = output_supported;
         const char *output_name = platform_screen_mode_name();
         platform_set_screen_output(OUTPUT_BEST);
         snprintf(results[i][0], sizeof(results[i][0]), "%s [%s]:", part->name, output_name);
@@ -1028,22 +1086,43 @@ void emu_speed_test(int close_after_seconds)
     gui_wait_release();
     for (;;)
     {
-        draw_clear(COLOR_BG);
-        char title[64];
+        char right[32] = "";
         if (mhz)
-            snprintf(title, sizeof(title), "Speed test at %u MHz: fps, then ms per frame", (unsigned) mhz);
-        else
-            snprintf(title, sizeof(title), "Speed test: frames per second, then ms per frame");
-        draw_text(title, COLOR_ACTIVE_ITEM, COLOR_BG, 4, 10, 0);
+            snprintf(right, sizeof(right), "CPU %u MHz", (unsigned) mhz);
+        ui_frame("Speed test", right[0] ? right : NULL);
+
+        /* fps, then milliseconds per frame running the game, drawing it, showing it. */
+        static const char *const columns[] = { "fps", "game", "draw", "show" };
+        static const int column_right[] = { 152, 202, 252, 302 };
+        draw_round_rect(5, UI_LIST_Y, 310, 18 + SPEED_TEST_PARTS * 18, 6, COLOR_PANEL);
+        draw_round_frame(5, UI_LIST_Y, 310, 18 + SPEED_TEST_PARTS * 18, 6, COLOR_PANEL_EDGE);
+        for (int c = 0; c < 4; c++)
+            draw_string_right(FONT_SMALL, columns[c], column_right[c], UI_LIST_Y + 4, COLOR_TEXT_FAINT);
         for (int i = 0; i < done; i++)
         {
-            draw_text(results[i][0], COLOR_ROM_INFO, COLOR_BG, 4, 30 + i * 2 * TEXT_H, 0);
-            draw_text(results[i][1], COLOR_INACTIVE_ITEM, COLOR_BG, 4, 30 + (i * 2 + 1) * TEXT_H, 0);
+            int y = UI_LIST_Y + 20 + i * 18;
+            draw_rect(12, y - 3, 296, 1, COLOR_PANEL_EDGE);
+            draw_string(FONT_SMALL, speed_test_parts[i].short_name, 14, y, COLOR_TEXT);
+            if (!supported[i])
+            {
+                draw_string_right(FONT_SMALL, "not on this screen", 302, y, COLOR_TEXT_FAINT);
+                continue;
+            }
+            const uint32_t values[4] = { stats[i].game_fps, stats[i].cpu_ms, stats[i].render_ms, stats[i].output_ms };
+            for (int c = 0; c < 4; c++)
+            {
+                char number[16];
+                snprintf(number, sizeof(number), "%u.%u", TENTHS(values[c]));
+                uint16_t color = COLOR_TEXT_DIM;
+                if (c == 0)
+                    color = stats[i].game_fps >= 595 ? COLOR_GOOD : stats[i].game_fps >= 450 ? COLOR_WARN : COLOR_BAD;
+                draw_string_right(FONT_MEDIUM, number, column_right[c], y - 3, color);
+            }
         }
-        draw_text("Full speed = 60 game fps. Log: pocketsnes_results.txt", COLOR_HELP_TEXT,
-                  COLOR_BG, 4, 200, 0);
-        draw_text(close_after_seconds ? "Closing by itself..." : "Press any key.", COLOR_HELP_TEXT,
-                  COLOR_BG, 4, 220, 0);
+        ui_help("60 fps is full speed. game/draw/show: ms per frame. Saved to pocketsnes_results.txt.");
+        static const struct UiHint close_hint[] = { { "any key", "Close" } };
+        static const struct UiHint closing[] = { { "wait", "Closing by itself" } };
+        ui_footer(close_after_seconds ? closing : close_hint, 1);
         gui_present();
         platform_poll_keys();
         if (platform_any_key_down() || platform_quit_requested())
@@ -1226,8 +1305,8 @@ static void save_before_leaving(void)
         return;
 
     int slot = emu_save_target();
-    draw_rect(0, MESSAGE_Y, SCREEN_W, TEXT_H, COLOR_BLACK);
-    draw_text("Saving state...", COLOR_WHITE, COLOR_BLACK, 2, MESSAGE_Y, 0);
+    int rect[4];
+    ui_toast("Saving your place...", MESSAGE_Y, rect);
     platform_present();
     if (!slot || !emu_save_state(slot))
         gui_message("Couldn't save a state to resume from.",

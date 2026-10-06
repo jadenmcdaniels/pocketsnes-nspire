@@ -2,7 +2,9 @@
 wait 30
 press esc
 wait 5
-# Main menu entry 6 is "Settings for"
+# Main menu entry 7 is "Settings for", entry 4 "Saving"
+press down
+wait 3
 press down
 wait 3
 press down
@@ -16,10 +18,6 @@ wait 3
 press down
 wait 3
 press right
-wait 3
-press up
-wait 3
-press up
 wait 3
 press up
 wait 3

@@ -95,7 +95,7 @@ int main(int argc, char **argv)
             const char *slash = strrchr(rom, '/');
             char line[600];
             snprintf(line, sizeof(line), "Couldn't load %s", slash ? slash + 1 : rom);
-            gui_message(line, "Is it a SNES ROM? It may also be too big to fit.");
+            gui_message(line, emu_load_error());
             continue;
         }
 

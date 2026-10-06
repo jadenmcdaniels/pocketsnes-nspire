@@ -10,15 +10,15 @@
 #include "draw.h"
 #include "gui.h"
 #include "menu.h"
+#include "ui.h"
 
-#define LIST_Y    40
-#define LIST_ROWS 17
-#define NAME_COLUMNS 50
+#define LIST_ROWS ((UI_FOOTER_Y - 4 - UI_LIST_Y) / UI_ROW_H)
 
 struct Entry
 {
     char name[256];
     int is_dir;
+    int saves;    /* save states in the folder's .pocketsnes */
 };
 
 static struct Entry *entries;
@@ -74,7 +74,40 @@ static void add_entry(const char *name, int is_dir)
     }
     snprintf(entries[entry_count].name, sizeof(entries[entry_count].name), "%s", name);
     entries[entry_count].is_dir = is_dir;
+    entries[entry_count].saves = 0;
     entry_count++;
+}
+
+/* How many save states each game has: "<ROM name without .tns>.svNNN.tns"
+ * in the folder's .pocketsnes (states.cpp). */
+static void count_saves(void)
+{
+    char path[800];
+    snprintf(path, sizeof(path), "%s/.pocketsnes", strcmp(current_dir, "/") == 0 ? "" : current_dir);
+    DIR *dir = opendir(path);
+    if (!dir)
+        return;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+        /* ".sv" three digits ".tns" */
+        if (len < 11 || !ends_with(name, ".tns") || strncasecmp(name + len - 10, ".sv", 3) != 0)
+            continue;
+        size_t base = len - 10;
+        for (int i = has_parent; i < entry_count; i++)
+        {
+            const char *rom = entries[i].name;
+            if (!entries[i].is_dir && strlen(rom) == base + 4 && strncmp(rom, name, base) == 0 &&
+                ends_with(rom, ".tns"))
+            {
+                entries[i].saves++;
+                break;
+            }
+        }
+    }
+    closedir(dir);
 }
 
 static void read_dir(void)
@@ -105,6 +138,7 @@ static void read_dir(void)
     closedir(dir);
 
     qsort(entries + has_parent, entry_count - has_parent, sizeof(*entries), compare_entries);
+    count_saves();
 }
 
 static int dir_exists(const char *path)
@@ -116,40 +150,85 @@ static int dir_exists(const char *path)
     return 1;
 }
 
+/* A ROM's name as shown: without ".tns" and the ROM's own extension. */
+static void display_name(const char *file, char *name, size_t size)
+{
+    snprintf(name, size, "%s", file);
+    for (int i = 0; i < 2; i++)
+    {
+        char *dot = strrchr(name, '.');
+        if (dot && dot != name && strlen(dot) <= 4)
+            *dot = 0;
+    }
+}
+
 static void draw_browser(int selected, int top)
 {
-    char line[NAME_COLUMNS + 8];
-    size_t dir_len = strlen(current_dir);
+    char folder[600], name[256], saves[24];
 
-    draw_clear(COLOR_BG);
-    draw_text("PocketSNES - choose a game", COLOR_ROM_INFO, COLOR_BG, 10, 10, 0);
-    if (dir_len > NAME_COLUMNS)
-        snprintf(line, sizeof(line), "...%s", current_dir + dir_len - (NAME_COLUMNS - 3));
+    /* The folder, with the calculator's documents folder by its name, and
+     * only its end when it's long. */
+    if (strncmp(current_dir, "/documents", 10) == 0 && (current_dir[10] == '/' || !current_dir[10]))
+        snprintf(folder, sizeof(folder), "My Documents%s", current_dir + 10);
     else
-        snprintf(line, sizeof(line), "%.*s", NAME_COLUMNS, current_dir);
-    draw_text(line, COLOR_ROM_INFO, COLOR_BG, 10, 20, 0);
+        snprintf(folder, sizeof(folder), "%s", current_dir);
+    size_t len = strlen(folder);
+    if (len > 26)
+    {
+        const char *tail = folder + len - 23;
+        const char *slash = strchr(tail, '/');
+        char shortened[32];
+        snprintf(shortened, sizeof(shortened), "...%s", slash ? slash : tail);
+        snprintf(folder, sizeof(folder), "%s", shortened);
+    }
+    ui_frame(NULL, folder);
 
     for (int row = 0; row < LIST_ROWS && top + row < entry_count; row++)
     {
         const struct Entry *entry = &entries[top + row];
-        snprintf(line, sizeof(line), "%.*s%s", NAME_COLUMNS - 1, entry->name, entry->is_dir ? "/" : "");
-        draw_text(line, top + row == selected ? COLOR_ACTIVE_ITEM : COLOR_INACTIVE_ITEM, COLOR_BG,
-                  10, LIST_Y + row * TEXT_H, 0);
+        int y = UI_LIST_Y + row * UI_ROW_H;
+        int flags = top + row == selected ? ROW_SELECTED : 0;
+        if (entry->is_dir && strcmp(entry->name, "..") == 0)
+            ui_row(y, ICON_BACK, COLOR_TEXT_FAINT, "Up a folder", NULL, flags);
+        else if (entry->is_dir)
+            ui_row(y, ICON_FOLDER, COLOR_FOLDER, entry->name, NULL, flags | ROW_SUBMENU);
+        else
+        {
+            display_name(entry->name, name, sizeof(name));
+            saves[0] = 0;
+            if (entry->saves)
+                snprintf(saves, sizeof(saves), entry->saves == 1 ? "1 save" : "%d saves", entry->saves);
+            ui_row(y, ICON_CART, COLOR_TEXT_DIM, name, saves, flags);
+        }
     }
+    ui_scrollbar(top, LIST_ROWS, entry_count, UI_LIST_Y, LIST_ROWS * UI_ROW_H);
+
     if (entry_count == has_parent)
     {
         static const char *const hint[] =
         {
-            "No games in this folder. Copy SNES ROMs to the",
-            "calculator named like game.sfc.tns (it only takes",
-            ".tns files), or pick another folder (.. goes up).",
+            "Copy SNES ROMs to the calculator, named",
+            "like game.sfc.tns: it only takes .tns",
+            "files. Or open another folder.",
         };
+        int y = 92;
+        draw_round_rect(30, y, 260, 82, 7, COLOR_PANEL);
+        draw_round_frame(30, y, 260, 82, 7, COLOR_PANEL_EDGE);
+        draw_icon(ICON_CART, 44, y + 12, COLOR_TEXT_FAINT);
+        draw_string(FONT_MEDIUM, "No games in this folder", 64, y + 10, COLOR_TEXT);
         for (int i = 0; i < 3; i++)
-            draw_text(hint[i], COLOR_HELP_TEXT, COLOR_BG, 10, LIST_Y + (2 + i) * TEXT_H, 0);
+            draw_string(FONT_SMALL, hint[i], 44, y + 34 + i * 13, COLOR_TEXT_DIM);
     }
 
-    draw_text("Enter: open   Left/Right: page   Esc: quit", COLOR_HELP_TEXT, COLOR_BG, 10, 215, 0);
-    draw_text("Menu: settings (for the game, or all games)", COLOR_HELP_TEXT, COLOR_BG, 10, 225, 0);
+    int on_folder = entry_count > 0 && entries[selected].is_dir;
+    struct UiHint hints[] =
+    {
+        { "enter", on_folder ? "Open" : "Play" },
+        { "menu", "Settings" },
+        { "left/right", "Page" },
+        { "esc", "Quit" },
+    };
+    ui_footer(hints, entry_count ? 4 : 2);
 }
 
 /* The full path of an entry in the current folder. */

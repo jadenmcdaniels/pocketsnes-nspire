@@ -15,6 +15,8 @@ int  emu_init(void);
 void emu_deinit(void);
 
 int  emu_load_game(const char *rom_path);
+/* Why emu_load_game() last failed, as a sentence. */
+const char *emu_load_error(void);
 /* Plays until the player leaves the game. Starts from the game's newest
  * state if may_load_state and "load the newest state when starting" are on,
  * and saves a state before leaving with "save a state when leaving" on. */

@@ -3,6 +3,7 @@
 #include "gui.h"
 #include "bindings.h"
 #include "platform.h"
+#include "ui.h"
 
 static enum GuiAction held_direction;
 static uint32_t repeat_at;
@@ -104,11 +105,10 @@ struct MessageLines
 static void draw_message(const void *data)
 {
     const struct MessageLines *m = (const struct MessageLines *) data;
-    draw_clear(COLOR_BG);
-    draw_text(m->line1, COLOR_ACTIVE_ITEM, COLOR_BG, 10, 100, 0);
-    if (m->line2)
-        draw_text(m->line2, COLOR_ROM_INFO, COLOR_BG, 10, 112, 0);
-    draw_text("Press any key.", COLOR_HELP_TEXT, COLOR_BG, 10, 140, 0);
+    static const struct UiHint ok[] = { { "any key", "OK" } };
+    const char *lines[2] = { m->line1, m->line2 };
+    ui_frame(NULL, NULL);
+    ui_dialog(NULL, lines, 2, ok, 1);
 }
 
 void gui_message(const char *line1, const char *line2)

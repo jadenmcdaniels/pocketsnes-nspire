@@ -190,6 +190,19 @@ check "$(grep -c -e '^own_settings=1$' -e '^auto_increment=1$' "$game_cfg" 2>/de
     "settings for this game only: auto-increment went back on for the game"
 check "$(grep -c '^auto_increment=0$' "$cfg")" 1 "... and stayed off for all games"
 
+echo "== Files that aren't ROMs"
+# The core crashes on files under 32 KB; documents and programs are .tns
+# files too. Opening one shows a message and goes on to the game list.
+setup notrom MonsterFarmJump.sfc
+printf 'tiny' > "$OUT/notrom/roms/Tiny.sfc.tns"
+{ printf '*TIMLP0500'; head -c 40000 /dev/zero; } > "$OUT/notrom/roms/Notes.tns"
+message_script=$(realpath tests/scripts/after_crash.txt)
+for rom in Tiny.sfc Notes; do
+    (cd "$OUT/notrom" && timeout 20 "$HOST" --script "$message_script" --shots shots --exe-dir ndless \
+        "roms/$rom.tns" >/dev/null 2>&1)
+    check "$?" 0 "opening $rom.tns (not a ROM) shows a message instead of crashing"
+done
+
 echo "== First start"
 # No settings file yet: a welcome screen first, then the game list; the next
 # start goes straight to the game list.

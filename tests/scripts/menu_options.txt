@@ -1,8 +1,14 @@
-# Settings for all games, through the in-game menu.
+# Settings for all games, through the in-game menu (Resume game is the first entry).
 wait 30
 press esc
 wait 5
-# Save state options: auto-increment, save when leaving and load on start off
+# Saving (entry 4): auto-increment, save when leaving and load on start off
+press down
+wait 3
+press down
+wait 3
+press down
+wait 3
 press down
 wait 3
 press enter
@@ -19,7 +25,7 @@ press right
 wait 3
 press esc
 wait 3
-# Graphics/performance: FPS counter on, screen output DMA, CPU speed 432
+# Graphics & speed (entry 3): FPS counter on, screen output DMA, CPU speed 432
 press up
 wait 3
 press enter
@@ -40,7 +46,7 @@ press right
 wait 3
 press esc
 wait 3
-# SNES buttons: A = Z, and shift+3 as its second key
+# SNES buttons (entry 5): A = Z, and shift+3 as its second key
 press down
 wait 3
 press down
@@ -71,7 +77,7 @@ up shift
 wait 5
 press esc
 wait 3
-# Hotkeys: shift+S as the second key for Save state
+# Hotkeys (entry 6): shift+S as the second key for Save state
 press down
 wait 3
 press enter
