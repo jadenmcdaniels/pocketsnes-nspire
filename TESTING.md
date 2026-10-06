@@ -48,6 +48,12 @@ screenshots go. The commands are listed at the top of
 `PSNES_TRACE=1` prints the keys seen at every poll, which helps when a script
 doesn't do what you expect.
 
+Two more options are for the tests: `--log FILE` appends a line to FILE for
+every CPU clock change asked for (`clock x40`) and every message shown in the
+game (`message: CPU 480 MHz`), and `--stuck-clock` acts like a calculator
+whose clock doesn't change when asked (the PC build otherwise reports the
+clock asked for as the one it got).
+
 The test suite
 --------------
 
@@ -57,8 +63,13 @@ Downloads a few free homebrew demos (PeterLemon's SNES test programs) into
 `tests/roms`, then checks that loading a state gives back exactly the same
 game (pixel for pixel, 150 frames later), auto-increment, saving when leaving
 and loading on start, old settings files, key combinations, settings for one
-game, that in-game saves are written without quitting, the menu, the game
-list and its menu. Results and screenshots go to `tests/out/`.
+game, the CPU speed setting (the menu's choice reaches the clock when the
+game resumes; a clock that doesn't move goes back to normal and says so; a
+freeze at a raised speed is undone at the next start), that in-game saves
+are written without quitting, the menu, the welcome screen on the first
+start, the game list and its menu. Results and screenshots go to
+`tests/out/`. Every test starts with a settings file (so not on a "first
+start") unless it removes it.
 
 Unit tests
 ----------

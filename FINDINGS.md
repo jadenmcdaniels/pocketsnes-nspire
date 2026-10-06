@@ -304,11 +304,21 @@ Where things stand (2026-10-05)
   drawing 7.2, showing 1.8 (turned picture); no speed limit 65.7 fps (DMA
   output 67.1, whole-frame flip 62.1); normal play holds 60. Before the
   drawing work: 51.1 fps, drawing 12.1 ms.
-* Seen, not explained: the calculator's measured clock went 395 -> 432 ->
-  475 MHz across runs without anyone overclocking it, and the frame rates
-  rose by the same amount (so it really ran faster). One later run, with
-  USB plugged in, read 287 MHz (clock register x24). The speed test now
-  prints the clock register's multiplier to help find out.
+* Explained later the same day: the calculator's measured clock went
+  395 -> 432 -> 475 MHz across runs (and 376 / 434 MHz in Yoshi's Island
+  runs) without anyone overclocking it, with the frame rates rising by the
+  same amount. None of those is 12 MHz times a whole number. The cause was
+  the timer's rate, not the clock: it was "calibrated" against the
+  real-time clock while the program ran, by watching for second boundaries
+  at each key poll. Loading a ROM or a state holds up polling for a fraction
+  of a second; when that happened next to a boundary, the measured rate came
+  out 5-20% off and was adopted (anything over 2% off was). Everything timed
+  with it scaled: the measured MHz, the speed test's fps and ms, the FPS
+  counter, and the frame pacing itself, so those games ran 5-20% slow while
+  the counter read 60/60. The rate is now fixed at 32768 Hz (the speed test
+  build measures it against the real-time clock with nothing else running,
+  for the report). One run with USB plugged in read 287 MHz (clock register
+  x24), which is real: the OS lowers the clock on USB.
 * CPU speed setting (432/456/480 MHz, the NoverII way: multiplier in bits
   24-29 of 0x90140030, bit 0 set, bit 4 cleared, 1 ms wait with interrupts
   off): not confirmed on the calculator. The user thinks it doesn't work;
