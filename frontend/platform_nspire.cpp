@@ -683,15 +683,16 @@ const char *platform_screen_mode_name(void)
  * clock register: the multiplier of the 12 MHz base clock in bits 24-29 (the
  * CPU clock: the OS sets 33, 396 MHz, or 24, 288 MHz while USB is plugged
  * in) and the bus divider in bits 16-20 (2: the bus runs at half the CPU
- * clock, so memory speeds up with it). Writing the register starts a switch
- * and raises the controller's interrupt (Firebird). NoverII (Xavier
- * Andreani's CX II overclocker) writes it with bit 0 set and bit 4 cleared,
- * then sleeps a millisecond in Ndless's msleep, which idles the CPU (wait
- * for interrupt) until a timer wakes it. This does the same with interrupts
- * left off: power controllers like this one switch the clock while the CPU
- * idles. (An earlier version busy-waited instead, and no run showed whether
- * that worked.) Every switch is checked by timing a loop, and idles longer
- * if the clock hasn't moved. */
+ * clock, so memory speeds up with it). Writing the register raises the
+ * controller's interrupt (Firebird). NoverII (Xavier Andreani's CX II
+ * overclocker) writes it with bit 0 set and bit 4 cleared, with interrupts
+ * turned on (TCT_Local_Control_Interrupts(0)), then sleeps a millisecond in
+ * the Ndless SDK's msleep of the time, which idles the CPU until a timer
+ * interrupt; so the OS's interrupt handlers, the power controller's among
+ * them, run meanwhile. PocketSNES first tries the same with interrupts left
+ * off (the CPU still idles), and if the measured clock didn't move, does it
+ * NoverII's way, and keeps doing that. Every switch is checked by timing a
+ * loop against the 32 kHz timer. tools/clocktest tries the ways one by one. */
 #define CLOCK_CONTROL  (*(volatile uint32_t *) 0x90140030)
 #define PMU_INTERRUPTS (*(volatile uint32_t *) 0x90140024)   /* only read, for the reports */
 #define CLOCK_MULTIPLIER(value) ((int) (((value) >> 24) & 0x3F))
@@ -699,6 +700,7 @@ const char *platform_screen_mode_name(void)
 /* Ndless's msleep timer: the second SP804 dual timer, at 32768 Hz, which is
  * interrupt 19 at the interrupt controller (a PL190). */
 #define IDLE_TIMER_LOAD    (*(volatile uint32_t *) 0x900D0000)
+#define IDLE_TIMER_VALUE   (*(volatile uint32_t *) 0x900D0004)
 #define IDLE_TIMER_CONTROL (*(volatile uint32_t *) 0x900D0008)
 #define IDLE_TIMER_CLEAR   (*(volatile uint32_t *) 0x900D000C)
 #define IDLE_TIMER_RAW     (*(volatile uint32_t *) 0x900D0010)
@@ -706,6 +708,43 @@ const char *platform_screen_mode_name(void)
 #define IRQ_ENABLE         (*(volatile uint32_t *) 0xDC000010)
 #define IRQ_DISABLE        (*(volatile uint32_t *) 0xDC000014)
 #define IDLE_TIMER_IRQ     (1u << 19)
+
+/* The Ndless SDK's idle() and msleep() as NoverII has them (taken from its
+ * binary): the second timer counts down once and the CPU idles until an
+ * interrupt; with interrupts on, the OS handles it. */
+static void noverii_idle(void)
+{
+    uint32_t enabled = IRQ_ENABLE;
+    IRQ_DISABLE = ~IDLE_TIMER_IRQ;
+    __asm__ volatile ("mcr p15, 0, %0, c7, c0, 4" : : "r" (0) : "memory");
+    IDLE_TIMER_CLEAR = 1;
+    IRQ_DISABLE = 0xFFFFFFFF;
+    IRQ_ENABLE = enabled;
+}
+
+static void noverii_msleep(unsigned ms)
+{
+    uint32_t control = IDLE_TIMER_CONTROL, load = IDLE_TIMER_LOAD;
+    IDLE_TIMER_CONTROL = 0;
+    IDLE_TIMER_CONTROL = 0x63;
+    IDLE_TIMER_CONTROL = 0xE3;
+    IDLE_TIMER_LOAD = ms * 32;
+    for (int polls = 0; polls < 100000 && IDLE_TIMER_VALUE != 0; polls++)
+        noverii_idle();
+    IDLE_TIMER_CONTROL = 0;
+    IDLE_TIMER_CONTROL = control & 0x7F;
+    IDLE_TIMER_LOAD = load;
+    IDLE_TIMER_CONTROL = control;
+}
+
+/* Writes the clock register NoverII's way: interrupts on meanwhile. */
+static void write_clock_with_os(uint32_t value)
+{
+    int mask = TCT_Local_Control_Interrupts(0);
+    CLOCK_CONTROL = value;
+    noverii_msleep(1);
+    TCT_Local_Control_Interrupts(mask);
+}
 
 /* Idles the CPU for 'ticks' of 32768 Hz the way Ndless's msleep does: the
  * second timer counts down once, and its interrupt, the only one let
@@ -767,39 +806,46 @@ static int clock_matches(uint32_t mhz, int multiplier)
 static uint32_t os_clock_control;   /* the OS's setting, put back after a raised one */
 static int clock_raised;
 static uint32_t clock_mhz;          /* measured after the last switch, 0 if none */
+static int clock_needs_os;          /* only NoverII's way has worked */
 
 /* The last switch, for the speed test results. */
 static struct
 {
-    uint32_t before, written, after, interrupts, mhz;
-    int idles;
+    uint32_t before, written, after, interrupts, mhz, quiet_mhz;
+    int ways;   /* 1: interrupts off, 2: NoverII's way, 3: both tried */
 } last_switch;
 
-/* Writes the clock register and idles while the controller switches. If the
- * measured clock isn't the new one, idles again for longer (5, then 20 ms).
+/* Switches the clock, the quiet way first unless only NoverII's has worked.
  * Returns the measured clock in MHz, 0 if it can't be measured. */
 static uint32_t switch_clock(uint32_t value)
 {
-    static const uint16_t idle_ticks[] = { 33, 164, 655 };   /* 1, 5 and 20 ms */
-    const int tries = (int) (sizeof(idle_ticks) / sizeof(idle_ticks[0]));
+    int multiplier = CLOCK_MULTIPLIER(value);
     uint32_t mhz = 0;
-    int i;
 
     dma_finish();   /* no frame copy runs across the switch */
     last_switch.before = CLOCK_CONTROL;
     last_switch.written = value;
-    CLOCK_CONTROL = value;
-    for (i = 0; i < tries; i++)
+    last_switch.ways = 0;
+    last_switch.quiet_mhz = 0;
+    if (!clock_needs_os)
     {
-        idle_cpu(idle_ticks[i]);
+        CLOCK_CONTROL = value;
+        idle_cpu(33);
         mhz = measure_mhz(QUICK_LOOPS);
-        if (!mhz || clock_matches(mhz, CLOCK_MULTIPLIER(value)))
-            break;
+        last_switch.quiet_mhz = mhz;
+        last_switch.ways = 1;
+    }
+    if (timer_works && !clock_matches(mhz, multiplier))
+    {
+        write_clock_with_os(value);
+        mhz = measure_mhz(QUICK_LOOPS);
+        last_switch.ways |= 2;
+        if (clock_matches(mhz, multiplier) && last_switch.ways == 3)
+            clock_needs_os = 1;
     }
     last_switch.after = CLOCK_CONTROL;
     last_switch.interrupts = PMU_INTERRUPTS;
     last_switch.mhz = mhz;
-    last_switch.idles = i < tries ? i + 1 : tries;
     return mhz;
 }
 
@@ -857,10 +903,12 @@ void platform_clock_report(char *text, size_t size)
         size_t len = strlen(text);
         snprintf(text + len, size - len,
                  "; last switch %08lx -> %08lx, read back %08lx, power interrupts %08lx, "
-                 "%d idle(s), measured %lu MHz",
+                 "%s: %lu MHz%s",
                  (unsigned long) last_switch.before, (unsigned long) last_switch.written,
                  (unsigned long) last_switch.after, (unsigned long) last_switch.interrupts,
-                 last_switch.idles, (unsigned long) last_switch.mhz);
+                 last_switch.ways == 1 ? "interrupts off" : last_switch.ways == 2 ? "NoverII's way"
+                 : "interrupts off, then NoverII's way",
+                 (unsigned long) last_switch.mhz, clock_needs_os ? " (NoverII's way from now on)" : "");
     }
 }
 

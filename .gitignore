@@ -27,3 +27,6 @@ pocketsnes.cfg.tns
 *.gcno
 *.gcov
 gmon.out
+tools/clocktest/*.elf
+tools/clocktest/*.tns
+tools/clocktest/*.zehn
