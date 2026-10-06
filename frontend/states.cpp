@@ -1,0 +1,255 @@
+#include <ctype.h>
+#include <stdint.h>
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <zlib.h>
+
+#include "snes9x.h"
+#include "memmap.h"
+#include "snapshot.h"
+#include "states.h"
+
+/* A state file is this header followed by the zlib-compressed snapshot. */
+#define STATE_MAGIC     "PSST"
+#define STATE_VERSION   1
+#define MAX_RAW_SIZE    (4 * 1024 * 1024)
+
+struct StateHeader
+{
+    char     magic[4];
+    uint32_t version;
+    uint32_t counter;      /* save order: the newest state has the highest */
+    uint32_t raw_size;
+    uint32_t packed_size;
+    uint32_t rom_crc;
+    uint32_t reserved[2];
+};
+
+static char save_dir[512];
+static char base_name[256];   /* ROM file name without its last extension */
+static uint8_t used[MAX_STATE_SLOTS + 1];
+static uint32_t counters[MAX_STATE_SLOTS + 1];
+
+static void state_path(int slot, char *path, size_t size)
+{
+    snprintf(path, size, "%s/%s.sv%03d.tns", save_dir, base_name, slot);
+}
+
+/* Slot number of a file name like "Zelda.sfc.sv012.tns", or 0. */
+static int slot_from_name(const char *name)
+{
+    size_t base_len = strlen(base_name);
+    const char *p = name + base_len;
+
+    if (strlen(name) != base_len + 10 || strncasecmp(name, base_name, base_len) != 0)
+        return 0;
+    if (strncasecmp(p, ".sv", 3) != 0 || strcasecmp(p + 6, ".tns") != 0)
+        return 0;
+    if (!isdigit((unsigned char) p[3]) || !isdigit((unsigned char) p[4]) || !isdigit((unsigned char) p[5]))
+        return 0;
+    int slot = (p[3] - '0') * 100 + (p[4] - '0') * 10 + (p[5] - '0');
+    return slot >= 1 && slot <= MAX_STATE_SLOTS ? slot : 0;
+}
+
+static int read_header(const char *path, struct StateHeader *header)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return 0;
+    int ok = fread(header, sizeof(*header), 1, f) == 1 &&
+             memcmp(header->magic, STATE_MAGIC, 4) == 0 && header->version == STATE_VERSION;
+    fclose(f);
+    return ok;
+}
+
+void states_open_game(const char *rom_path)
+{
+    const char *slash = strrchr(rom_path, '/');
+    const char *file = slash ? slash + 1 : rom_path;
+
+    if (slash)
+        snprintf(save_dir, sizeof(save_dir), "%.*s/.pocketsnes", (int) (slash - rom_path), rom_path);
+    else
+        snprintf(save_dir, sizeof(save_dir), "./.pocketsnes");
+
+    snprintf(base_name, sizeof(base_name), "%s", file);
+    char *dot = strrchr(base_name, '.');
+    if (dot && dot != base_name)
+        *dot = 0;
+
+    memset(used, 0, sizeof(used));
+    memset(counters, 0, sizeof(counters));
+
+    DIR *dir = opendir(save_dir);
+    if (!dir)
+        return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        int slot = slot_from_name(entry->d_name);
+        if (!slot)
+            continue;
+
+        char path[800];
+        struct StateHeader header;
+        state_path(slot, path, sizeof(path));
+        used[slot] = 1;
+        counters[slot] = read_header(path, &header) ? header.counter : 0;
+    }
+    closedir(dir);
+}
+
+const char *states_dir(void)
+{
+    return save_dir;
+}
+
+void states_make_dir(void)
+{
+    mkdir(save_dir, 0755);
+}
+
+void states_sram_path(char *path, size_t size)
+{
+    snprintf(path, size, "%s/%s.srm.tns", save_dir, base_name);
+}
+
+int states_exists(int slot)
+{
+    return slot >= 1 && slot <= MAX_STATE_SLOTS && used[slot];
+}
+
+int states_count(void)
+{
+    int count = 0;
+    for (int slot = 1; slot <= MAX_STATE_SLOTS; slot++)
+        count += used[slot];
+    return count;
+}
+
+int states_newest(void)
+{
+    int newest = 0;
+    for (int slot = 1; slot <= MAX_STATE_SLOTS; slot++)
+        if (used[slot] && (!newest || counters[slot] >= counters[newest]))
+            newest = slot;
+    return newest;
+}
+
+int states_next_new_slot(void)
+{
+    int highest = 0;
+    for (int slot = 1; slot <= MAX_STATE_SLOTS; slot++)
+        if (used[slot])
+            highest = slot;
+    if (highest < MAX_STATE_SLOTS)
+        return highest + 1;
+    for (int slot = 1; slot <= MAX_STATE_SLOTS; slot++)
+        if (!used[slot])
+            return slot;
+    return 0;
+}
+
+int states_save(int slot)
+{
+    uint8 *raw = NULL, *packed = NULL;
+    uint32 raw_size = 0;
+    uLongf packed_size;
+    char path[800], temp_path[820];
+    struct StateHeader header;
+    int ok = 0;
+
+    if (slot < 1 || slot > MAX_STATE_SLOTS || !S9xFreezeToMemory(&raw, &raw_size))
+        return 0;
+
+    packed_size = compressBound(raw_size);
+    packed = (uint8 *) malloc(packed_size);
+    if (!packed || compress2(packed, &packed_size, raw, raw_size, Z_BEST_SPEED) != Z_OK)
+        goto done;
+
+    memset(&header, 0, sizeof(header));
+    memcpy(header.magic, STATE_MAGIC, 4);
+    header.version = STATE_VERSION;
+    header.raw_size = raw_size;
+    header.packed_size = (uint32_t) packed_size;
+    header.rom_crc = Memory.ROMCRC32;
+    header.counter = 1;
+    for (int i = 1; i <= MAX_STATE_SLOTS; i++)
+        if (used[i] && counters[i] >= header.counter)
+            header.counter = counters[i] + 1;
+
+    /* Write a temporary file first so a full disk can't destroy the old state. */
+    states_make_dir();
+    state_path(slot, path, sizeof(path));
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+    {
+        FILE *f = fopen(temp_path, "wb");
+        if (!f)
+            goto done;
+        int written = fwrite(&header, sizeof(header), 1, f) == 1 &&
+                      fwrite(packed, 1, packed_size, f) == packed_size;
+        if (fclose(f) != 0 || !written)
+        {
+            remove(temp_path);
+            goto done;
+        }
+    }
+    remove(path);
+    if (rename(temp_path, path) != 0)
+    {
+        remove(temp_path);
+        goto done;
+    }
+
+    used[slot] = 1;
+    counters[slot] = header.counter;
+    ok = 1;
+
+done:
+    free(packed);
+    free(raw);
+    return ok;
+}
+
+int states_load(int slot)
+{
+    char path[800];
+    struct StateHeader header;
+    uint8 *packed = NULL, *raw = NULL;
+    int result = -1;
+
+    if (!states_exists(slot))
+        return 0;
+
+    state_path(slot, path, sizeof(path));
+    FILE *f = fopen(path, "rb");
+    if (!f)
+    {
+        used[slot] = 0;
+        return 0;
+    }
+
+    if (fread(&header, sizeof(header), 1, f) == 1 &&
+        memcmp(header.magic, STATE_MAGIC, 4) == 0 && header.version == STATE_VERSION &&
+        header.raw_size <= MAX_RAW_SIZE && header.packed_size <= MAX_RAW_SIZE)
+    {
+        packed = (uint8 *) malloc(header.packed_size);
+        raw = (uint8 *) malloc(header.raw_size);
+        uLongf raw_size = header.raw_size;
+
+        if (packed && raw && fread(packed, 1, header.packed_size, f) == header.packed_size &&
+            uncompress(raw, &raw_size, packed, header.packed_size) == Z_OK &&
+            raw_size == header.raw_size &&
+            S9xUnfreezeFromMemory(raw, header.raw_size))
+            result = 1;
+    }
+    fclose(f);
+    free(packed);
+    free(raw);
+    return result;
+}

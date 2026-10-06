@@ -1,0 +1,123 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#include <stdint.h>
+
+/* Everything a key can be bound to: the SNES buttons, then the hotkeys, in
+ * the order the input menus list them. */
+enum Action
+{
+    ACTION_UP,
+    ACTION_DOWN,
+    ACTION_LEFT,
+    ACTION_RIGHT,
+    ACTION_A,
+    ACTION_B,
+    ACTION_X,
+    ACTION_Y,
+    ACTION_L,
+    ACTION_R,
+    ACTION_START,
+    ACTION_SELECT,
+    ACTION_MENU,
+    ACTION_QUIT,
+    ACTION_FAST_FORWARD,
+    ACTION_SAVE_STATE,
+    ACTION_LOAD_STATE,
+    ACTION_LOAD_NEWEST,
+    ACTION_NEXT_SLOT,
+    ACTION_PREVIOUS_SLOT,
+    ACTION_SHOW_FPS,
+    ACTION_RESTART,
+    NUM_ACTIONS
+};
+
+#define FIRST_HOTKEY ACTION_MENU
+
+/* Each action has KEY_SLOTS bindings, so two keys can do the same thing, and
+ * one key can be in several actions' bindings (one key pressing A and B). A
+ * binding is a key, or a combination: 'key' while 'with' is held (hold
+ * 'with', then press 'key'). 0 is no key. */
+#define KEY_SLOTS 2
+
+struct Binding
+{
+    uint8_t key;
+    uint8_t with;
+};
+
+enum FrameskipType
+{
+    FRAMESKIP_AUTO,
+    FRAMESKIP_MANUAL,
+    FRAMESKIP_OFF,
+    NUM_FRAMESKIP_TYPES
+};
+
+#define MAX_FRAMESKIP_VALUE 9
+
+/* CPU speeds (cfg.cpu_speed): the calculator's own, then raised ones. */
+enum CpuSpeed
+{
+    CPU_SPEED_NORMAL,
+    CPU_SPEED_432,
+    CPU_SPEED_456,
+    CPU_SPEED_480,
+    NUM_CPU_SPEEDS
+};
+
+/* The multiplier of 12 MHz for a raised speed, 0 for the normal one. */
+int config_cpu_multiplier(uint32_t cpu_speed);
+
+struct Config
+{
+    /* Settings: for all games, or a game's own (config_set_game_settings). */
+    uint32_t frameskip_type;
+    uint32_t frameskip_value;
+    uint32_t show_fps;          /* 0 off, 1 on, 2 detailed */
+    uint32_t auto_increment;    /* saving goes to a new slot */
+    uint32_t save_on_exit;      /* leaving a game saves a state first */
+    uint32_t load_on_start;     /* starting a game loads its newest state */
+    uint32_t sram_autosave;
+    uint32_t screen_dma;        /* game frames by DMA (faster, can tear) */
+    uint32_t cpu_speed;         /* enum CpuSpeed */
+    /* Keys: for all games, or a game's own (config_set_game_keys). */
+    struct Binding keys[NUM_ACTIONS][KEY_SLOTS];
+    /* For all games only. */
+    char rom_dir[512];
+};
+
+/* What the program uses right now: the settings for all games, with the
+ * open game's own settings or keys in their place when it has them. */
+extern struct Config cfg;
+extern const char *const action_names[NUM_ACTIONS];
+
+void config_default_keys(void);
+
+/* Loads pocketsnes.cfg.tns from the program's folder (missing settings get
+ * their defaults). */
+void config_load(void);
+/* Writes the settings for all games to pocketsnes.cfg.tns, and the open
+ * game's own settings and keys to its own file, "<ROM name>.cfg.tns" in the
+ * game's .pocketsnes folder (removed when it has neither). */
+void config_save(void);
+
+/* Uses a game's own settings and keys where it has them (the menu and the
+ * game); config_close_game() goes back to the ones for all games. */
+void config_open_game(const char *rom_path);
+void config_close_game(void);
+int  config_game_is_open(void);
+
+/* Whether the open game has its own settings / keys. Turning one on starts
+ * from the current values; turning it off goes back to the ones for all
+ * games (the game's own are forgotten when the config is saved). */
+int  config_game_has_settings(void);
+void config_set_game_settings(int own);
+int  config_game_has_keys(void);
+void config_set_game_keys(int own);
+
+/* Puts the CPU speed back to normal for all games, and for the game at
+ * rom_path if it has its own settings (NULL: none), and saves. */
+void config_reset_cpu_speed(const char *rom_path);
+
+#endif

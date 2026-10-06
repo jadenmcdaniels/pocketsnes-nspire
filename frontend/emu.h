@@ -1,0 +1,53 @@
+/* Runs the Snes9x core: game loop, frame pacing, hotkeys and save files. */
+#ifndef EMU_H
+#define EMU_H
+
+#include <stddef.h>
+
+enum EmuExit
+{
+    EMU_BACK_TO_BROWSER,
+    EMU_QUIT
+};
+
+int  emu_init(void);
+void emu_deinit(void);
+
+int  emu_load_game(const char *rom_path);
+/* Plays until the player leaves the game. Starts from the game's newest
+ * state if may_load_state and "load the newest state when starting" are on,
+ * and saves a state before leaving with "save a state when leaving" on. */
+enum EmuExit emu_run(int may_load_state);
+/* Writes the in-game save and the settings, and goes back to the settings
+ * for all games. */
+void emu_close_game(void);
+
+/* At startup: if PocketSNES didn't close normally while a game ran at a
+ * raised CPU speed, returns the multiplier (and the game's path in
+ * crashed_rom), and forgets it; otherwise 0. */
+int  emu_check_cpu_speed_crash(char *crashed_rom, size_t size);
+
+/* For the menu. */
+const char *emu_rom_path(void);
+const char *emu_game_title(void);
+int  emu_slot(void);
+void emu_set_slot(int slot);
+/* The slot a save goes to right now (a new one with auto-increment), or 0
+ * when every slot is used. */
+int  emu_save_target(void);
+int  emu_save_state(int slot);    /* 1 on success */
+int  emu_load_state(int slot);    /* 1 ok, 0 empty slot, -1 unreadable */
+void emu_reset_game(void);
+/* Shows a short message over the game. */
+void emu_show_message(const char *text);
+/* Runs the game from the current point in a few speed modes for about 35
+ * seconds, then shows the results and writes them to
+ * pocketsnes_results.txt.tns (replacing the last ones). With close_after_seconds set, the results screen
+ * closes by itself. The game is put back where it was. */
+void emu_speed_test(int close_after_seconds);
+/* For the speed test build: plays 5 seconds so the caches are warm and the
+ * timer's rate has been checked, writes pocketsnes_diag.txt.tns, then runs
+ * the speed test and closes it. */
+void emu_benchmark(void);
+
+#endif
