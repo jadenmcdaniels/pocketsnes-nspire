@@ -47,9 +47,11 @@ The screen
   0x00071206 (both ports AHB1, 32-bit, 256-word bursts), source in normal
   memory, destination ending at 0xA8025800. The source and destination
   registers count up and the size register counts down during a copy.
-  PocketSNES now copies each frame this way on channel 1 ("dma"), with its
+  PocketSNES can copy each frame this way on channel 1 ("dma"), with its
   interrupts masked, from one of two buffers, while the next frame is drawn
-  into the other.
+  into the other. Since 2026-10-05 that is a setting (Screen output: DMA);
+  the default turns only the picture into one of three portrait buffers and
+  flips the LCD to it (no tearing).
 * Seen: a 320x240 frame copy by DMA takes 12.60 / 4.72 / 3.15 / 3.21 / 3.25 /
   3.58 ms with 1 / 4 / 8 / 16 / 32 / 64-word bursts (256-word, the OS's
   setting, wasn't timed), and 1.93 ms when the source is the on-chip SRAM.
@@ -215,16 +217,13 @@ Ideas not tried yet
   DMA controller can read it at all.
 * Seen (user): Yoshi's Island (Super FX) glitches in the top rows of the
   picture, in the old build too, so it comes from the emulator core.
-* Use 8-word DMA bursts instead of the OS's 256 (faster copy, shorter bus
-  holds).
 
-* Turn only the 256x224 picture instead of the whole 320x240 frame: about a
-  quarter less turning.
+* Done 2026-10-05: only the 256x224 picture is turned; 8-word DMA bursts;
+  DrawTile16 in faster C (ARM assembly could still go further).
 * Profile-guided optimization (compile, record a run, compile again using
   the recording).
-* Faster tile drawing (DrawTile16) in ARM-tuned code.
-* Overclocking (registers above). A wrong value freezes the calculator
-  until it's reset.
+* The 6 ms of game emulation (the 65c816 core) is now close to the 7 ms
+  of drawing.
 
 Drawing (2026-10-05)
 --------------------
@@ -297,3 +296,33 @@ Drawing (2026-10-05)
   its own 512-byte messages either. Fixed in
   ~/nspire/build/tools/libnspire/src/cx2.cpp (readPacket, writePacket; the
   original is cx2.cpp.orig). nspire-link also got "cp REMOTE NEWREMOTE".
+
+Where things stand (2026-10-05)
+-------------------------------
+
+* Seen (speed test, SMW pipe level, 396 MHz, ms per frame): game 6.0,
+  drawing 7.2, showing 1.8 (turned picture); no speed limit 65.7 fps (DMA
+  output 67.1, whole-frame flip 62.1); normal play holds 60. Before the
+  drawing work: 51.1 fps, drawing 12.1 ms.
+* Seen, not explained: the calculator's measured clock went 395 -> 432 ->
+  475 MHz across runs without anyone overclocking it, and the frame rates
+  rose by the same amount (so it really ran faster). One later run, with
+  USB plugged in, read 287 MHz (clock register x24). The speed test now
+  prints the clock register's multiplier to help find out.
+* CPU speed setting (432/456/480 MHz, the NoverII way: multiplier in bits
+  24-29 of 0x90140030, bit 0 set, bit 4 cleared, 1 ms wait with interrupts
+  off): not confirmed on the calculator. The user thinks it doesn't work;
+  the one run on record didn't show it, but the setting may have been
+  turned on after that run. To check: run the menu speed test with it on
+  and look for "clock register x40" in the results.
+* NoverII also has a bus divider (0x90140020 bits 20-23) and a bit in
+  0x90140810 (bit 4, set when that divider isn't 0); PocketSNES doesn't
+  touch them.
+* nspire-link (libnspire, CX II): the calculator streams messages back to
+  back without ending a 512-byte one with an empty USB packet. Reading one
+  USB packet first and then exactly the rest of a message overflows
+  (LIBUSB_ERROR_OVERFLOW) on every message over 512 bytes, so the read
+  keeps libnspire's single long read; the fix is to check the checksum
+  over the message's own length and drop anything read past it. Writes add
+  the empty packet after a message that fills whole USB packets. Checked
+  with files of 478 to 40,000 bytes both ways.
