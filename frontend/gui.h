@@ -2,6 +2,7 @@
 #ifndef GUI_H
 #define GUI_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 enum GuiAction
@@ -25,6 +26,12 @@ enum GuiAction
 enum GuiAction gui_input(void);
 /* How many times the held direction has auto-repeated so far. */
 int gui_repeat_count(void);
+
+/* Whether 8/2/5/4/6 move like the arrows in gui_input() (they do unless
+ * switched off: the game list uses the number keys to start games). */
+void gui_digits_move(bool on);
+/* The number key (0-9) that went down at the last poll, or -1. */
+int gui_digit_pressed(void);
 
 /* Shows the back buffer and waits out the rest of a 1/60 s frame. */
 void gui_present(void);

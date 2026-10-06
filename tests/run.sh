@@ -237,6 +237,44 @@ check "$(same "$OUT/fresh/shots/game.png" "$OUT/nostate/shots/game.png")" same \
 check "$(same "$OUT/fresh/shots/resumed.png" "$OUT/fresh/shots/game.png")" different \
     "... while a plain start loaded the saved state"
 
+echo "== Game list: number keys and the order of the games"
+# setup_list NAME: a folder of three games, A to Z MonsterFarmJump, Rings and
+# RotZoom, that the game list starts in; quitting a game saves a state, so
+# the state file says which game ran.
+setup_list() {
+    setup "$1" MonsterFarmJump.sfc config_version=2 save_on_exit=1 load_on_start=0 \
+        "rom_dir=$(realpath "$OUT")/$1/roms"
+    cp "$ROMS/Rings.sfc" "$OUT/$1/roms/Rings.sfc.tns"
+    cp "$ROMS/RotZoom.sfc" "$OUT/$1/roms/RotZoom.sfc.tns"
+}
+order() { tr '\n' ' ' < "$1" 2>/dev/null; }
+
+setup_list number
+play number tests/scripts/list_number.txt
+s=$OUT/number/roms/.pocketsnes
+check "$(exists "$s/Rings.sfc.sv001.tns")$(exists "$s/MonsterFarmJump.sfc.sv001.tns")" yesno \
+    "the 2 key in the game list starts the second game"
+
+setup_list move
+play move tests/scripts/list_move.txt
+s=$OUT/move/roms/.pocketsnes
+check "$(order "$s/game_order.txt.tns")" "Rings.sfc.tns RotZoom.sfc.tns MonsterFarmJump.sfc.tns " \
+    "tab, down, down, enter moved the first game to third place, and the order was saved"
+check "$(exists "$s/MonsterFarmJump.sfc.sv001.tns")" yes "... then the 3 key started it there"
+play move tests/scripts/list_number.txt
+check "$(exists "$s/RotZoom.sfc.sv001.tns")" yes "the next start keeps the order (2 is now RotZoom)"
+play move tests/scripts/list_menu_sort.txt
+check "$(exists "$s/game_order.txt.tns")" no "Sort the list A to Z (game list menu) goes back to A to Z"
+
+setup_list cancel
+play cancel tests/scripts/list_move_cancel.txt
+check "$(exists "$OUT/cancel/roms/.pocketsnes/game_order.txt.tns")" no "esc while moving puts the game back and saves nothing"
+
+setup_list menumove
+play menumove tests/scripts/list_menu_move.txt
+check "$(order "$OUT/menumove/roms/.pocketsnes/game_order.txt.tns")" \
+    "Rings.sfc.tns MonsterFarmJump.sfc.tns RotZoom.sfc.tns " "Move in the list (game list menu) moves the game"
+
 echo
 echo "$PASS passed, $FAIL failed. Screenshots and files are in $OUT"
 [ "$FAIL" = 0 ]

@@ -47,11 +47,14 @@ enum
     ROW_ARROWS = 2,    /* left/right change the value: arrows around it when selected */
     ROW_SUBMENU = 4,   /* opens another screen: a chevron at the right */
     ROW_FAINT = 8,
-    ROW_TOGGLE = 16    /* the value is on or off ("on" is on): drawn as a switch */
+    ROW_TOGGLE = 16,   /* the value is on or off ("on" is on): drawn as a switch */
+    ROW_MOVING = 32    /* being moved up or down the list: a gold frame and arrows */
 };
 /* A list row at y: an icon (ICON_NONE for none), a label, and a value at the
  * right (may be NULL). */
 void ui_row(int y, int icon, uint16_t icon_color, const char *label, const char *value, int flags);
+/* The same with a key cap where the icon goes, like "1" for a key to press. */
+void ui_row_key(int y, const char *key, const char *label, const char *value, int flags);
 /* Where a list of 'total' rows showing 'shown' from 'first' is. */
 void ui_scrollbar(int first, int shown, int total, int y, int h);
 /* The help panel: the text wrapped into two lines. */

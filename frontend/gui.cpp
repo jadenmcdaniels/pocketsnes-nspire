@@ -9,6 +9,7 @@ static enum GuiAction held_direction;
 static uint32_t repeat_at;
 static int repeats;
 static uint32_t frame_end;
+static bool digits_move = true;
 
 enum GuiAction gui_input(void)
 {
@@ -30,13 +31,13 @@ enum GuiAction gui_input(void)
         return GUI_CLEAR;
 
     enum GuiAction direction = GUI_NONE;
-    if (platform_key_down(KEY_UP) || platform_key_down(KEY_8))
+    if (platform_key_down(KEY_UP) || (digits_move && platform_key_down(KEY_8)))
         direction = GUI_UP;
-    else if (platform_key_down(KEY_DOWN) || platform_key_down(KEY_2) || platform_key_down(KEY_5))
+    else if (platform_key_down(KEY_DOWN) || (digits_move && (platform_key_down(KEY_2) || platform_key_down(KEY_5))))
         direction = GUI_DOWN;
-    else if (platform_key_down(KEY_LEFT) || platform_key_down(KEY_4))
+    else if (platform_key_down(KEY_LEFT) || (digits_move && platform_key_down(KEY_4)))
         direction = GUI_LEFT;
-    else if (platform_key_down(KEY_RIGHT) || platform_key_down(KEY_6))
+    else if (platform_key_down(KEY_RIGHT) || (digits_move && platform_key_down(KEY_6)))
         direction = GUI_RIGHT;
 
     uint32_t now = platform_ticks();
@@ -60,6 +61,20 @@ enum GuiAction gui_input(void)
 int gui_repeat_count(void)
 {
     return repeats;
+}
+
+void gui_digits_move(bool on)
+{
+    digits_move = on;
+}
+
+int gui_digit_pressed(void)
+{
+    static const int digit_keys[10] = { KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9 };
+    for (int i = 0; i < 10; i++)
+        if (platform_key_pressed(digit_keys[i]))
+            return i;
+    return -1;
 }
 
 void gui_present(void)

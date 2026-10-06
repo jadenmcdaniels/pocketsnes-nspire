@@ -35,7 +35,9 @@ enum Step
     STEP_EXIT,
     STEP_BACK_TO_LIST,
     STEP_START,
-    STEP_START_WITHOUT_STATE
+    STEP_START_WITHOUT_STATE,
+    STEP_MOVE,
+    STEP_SORT
 };
 
 struct Menu;
@@ -142,6 +144,8 @@ static enum Step exit_app(void) { return STEP_EXIT; }
 static enum Step back_to_list(void) { return STEP_BACK_TO_LIST; }
 static enum Step start_game(void) { return STEP_START; }
 static enum Step start_without_state(void) { return STEP_START_WITHOUT_STATE; }
+static enum Step move_in_list(void) { return STEP_MOVE; }
+static enum Step sort_list(void) { return STEP_SORT; }
 
 static enum Step restart_game(void)
 {
@@ -327,9 +331,13 @@ static struct Option list_game_options[] =
            0, start_game, ICON_PLAY),
     ACTION("Play without a state", "Starts from the game's own save only, e.g. when a state is broken.",
            1, start_without_state, ICON_CART),
-    SETTINGS_SUBMENUS(3, &list_graphics_menu),
-    SCOPE_OPTIONS(7),
-    ACTION("Back to the game list", "Close this menu.", 10, back_to_list, ICON_BACK),
+    ACTION("Move in the list", "Up/down move the game, enter puts it there (tab in the list does this too).",
+           2, move_in_list, ICON_MOVE),
+    ACTION("Sort the list A to Z", "Puts the games in this folder back in alphabetical order.",
+           3, sort_list, ICON_SORT),
+    SETTINGS_SUBMENUS(5, &list_graphics_menu),
+    SCOPE_OPTIONS(9),
+    ACTION("Back to the game list", "Close this menu.", 12, back_to_list, ICON_BACK),
 };
 
 /* ... and on a folder: the settings for all games. */
@@ -530,7 +538,7 @@ static void draw_menu(const struct Menu *menu, int selected, int *scroll)
     else if (menu != &about_menu)
         ui_help(current->help);
     else
-        ui_help("Change keys in SNES buttons and Hotkeys. Menus: arrows or 8 5 4 6, enter, esc.");
+        ui_help("Menus: arrows or 8 5 4 6, enter, esc. Game list: number keys start games, tab moves one.");
 
     /* The keys that do something here. */
     struct UiHint hints[5];
@@ -919,6 +927,10 @@ enum ListMenuResult menu_run_list(const char *rom_path)
         return LIST_MENU_START;
     case STEP_START_WITHOUT_STATE:
         return LIST_MENU_START_WITHOUT_STATE;
+    case STEP_MOVE:
+        return LIST_MENU_MOVE;
+    case STEP_SORT:
+        return LIST_MENU_SORT;
     case STEP_EXIT:
         return LIST_MENU_QUIT;
     default:

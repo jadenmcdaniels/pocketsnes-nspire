@@ -1,4 +1,5 @@
 #include <dirent.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,11 +20,13 @@ struct Entry
     char name[256];
     int is_dir;
     int saves;    /* save states in the folder's .pocketsnes */
+    int rank;     /* place in the folder's game order, INT_MAX if not in it */
 };
 
 static struct Entry *entries;
 static int entry_count, entry_capacity;
 static int has_parent;   /* entries[0] is ".." */
+static int first_game;   /* folders come first, then the games from here */
 static char current_dir[512];
 
 static int ends_with(const char *text, const char *suffix)
@@ -53,11 +56,15 @@ static int is_rom_name(const char *name)
     return 0;
 }
 
+/* Folders A to Z, then the games in the folder's order, then the games
+ * that aren't in it, A to Z. */
 static int compare_entries(const void *a, const void *b)
 {
     const struct Entry *x = (const struct Entry *) a, *y = (const struct Entry *) b;
     if (x->is_dir != y->is_dir)
         return y->is_dir - x->is_dir;
+    if (x->rank != y->rank)
+        return x->rank < y->rank ? -1 : 1;
     return strcasecmp(x->name, y->name);
 }
 
@@ -75,7 +82,63 @@ static void add_entry(const char *name, int is_dir)
     snprintf(entries[entry_count].name, sizeof(entries[entry_count].name), "%s", name);
     entries[entry_count].is_dir = is_dir;
     entries[entry_count].saves = 0;
+    entries[entry_count].rank = INT_MAX;
     entry_count++;
+}
+
+/* "<folder>/.pocketsnes/<name>". */
+static void folder_file(char *path, size_t size, const char *name)
+{
+    snprintf(path, size, "%s/.pocketsnes%s%s", strcmp(current_dir, "/") == 0 ? "" : current_dir,
+             name[0] ? "/" : "", name);
+}
+
+/* The order of the games in a folder, when it has been changed (Move): one
+ * ROM file name per line in "<folder>/.pocketsnes/game_order.txt.tns". */
+#define ORDER_FILE "game_order.txt.tns"
+
+static void read_order(void)
+{
+    char path[800], line[300];
+    folder_file(path, sizeof(path), ORDER_FILE);
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return;
+    int rank = 0;
+    while (fgets(line, sizeof(line), f))
+    {
+        line[strcspn(line, "\r\n")] = 0;
+        for (int i = has_parent; i < entry_count; i++)
+            if (!entries[i].is_dir && entries[i].rank == INT_MAX && strcmp(entries[i].name, line) == 0)
+            {
+                entries[i].rank = rank++;
+                break;
+            }
+    }
+    fclose(f);
+}
+
+/* Writes the games' order as it is now. Returns 0 if it couldn't. */
+static int write_order(void)
+{
+    char path[800];
+    folder_file(path, sizeof(path), "");
+    mkdir(path, 0755);
+    folder_file(path, sizeof(path), ORDER_FILE);
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return 0;
+    int ok = 1;
+    for (int i = first_game; i < entry_count; i++)
+        if (fprintf(f, "%s\n", entries[i].name) < 0)
+            ok = 0;
+    return fclose(f) == 0 && ok;
+}
+
+/* The entry of game number n (1 is the first game), or -1. */
+static int nth_game(int n)
+{
+    return n >= 1 && first_game + n - 1 < entry_count ? first_game + n - 1 : -1;
 }
 
 /* How many save states each game has: "<ROM name without .tns>.svNNN.tns"
@@ -137,7 +200,11 @@ static void read_dir(void)
     }
     closedir(dir);
 
+    read_order();
     qsort(entries + has_parent, entry_count - has_parent, sizeof(*entries), compare_entries);
+    first_game = has_parent;
+    while (first_game < entry_count && entries[first_game].is_dir)
+        first_game++;
     count_saves();
 }
 
@@ -162,7 +229,9 @@ static void display_name(const char *file, char *name, size_t size)
     }
 }
 
-static void draw_browser(int selected, int top)
+/* The game list. 'moving': the selected game is being moved up or down.
+ * The first ten games have the number keys that start them (1-9, then 0). */
+static void draw_browser(int selected, int top, int moving)
 {
     char folder[600], name[256], saves[24];
 
@@ -187,7 +256,7 @@ static void draw_browser(int selected, int top)
     {
         const struct Entry *entry = &entries[top + row];
         int y = UI_LIST_Y + row * UI_ROW_H;
-        int flags = top + row == selected ? ROW_SELECTED : 0;
+        int flags = top + row == selected ? (moving ? ROW_MOVING : ROW_SELECTED) : 0;
         if (entry->is_dir && strcmp(entry->name, "..") == 0)
             ui_row(y, ICON_BACK, COLOR_TEXT_FAINT, "Up a folder", NULL, flags);
         else if (entry->is_dir)
@@ -198,7 +267,15 @@ static void draw_browser(int selected, int top)
             saves[0] = 0;
             if (entry->saves)
                 snprintf(saves, sizeof(saves), entry->saves == 1 ? "1 save" : "%d saves", entry->saves);
-            ui_row(y, ICON_CART, COLOR_TEXT_DIM, name, saves, flags);
+            int number = top + row - first_game + 1;
+            if (number <= 10)
+            {
+                char key[4];
+                snprintf(key, sizeof(key), "%d", number % 10);
+                ui_row_key(y, key, name, saves, flags);
+            }
+            else
+                ui_row(y, ICON_CART, COLOR_TEXT_DIM, name, saves, flags);
         }
     }
     ui_scrollbar(top, LIST_ROWS, entry_count, UI_LIST_Y, LIST_ROWS * UI_ROW_H);
@@ -220,15 +297,45 @@ static void draw_browser(int selected, int top)
             draw_string(FONT_SMALL, hint[i], 44, y + 34 + i * 13, COLOR_TEXT_DIM);
     }
 
-    int on_folder = entry_count > 0 && entries[selected].is_dir;
-    struct UiHint hints[] =
+    struct UiHint hints[4];
+    int n = 0;
+    if (moving)
     {
-        { "enter", on_folder ? "Open" : "Play" },
-        { "menu", "Settings" },
-        { "left/right", "Page" },
-        { "esc", "Quit" },
-    };
-    ui_footer(hints, entry_count ? 4 : 2);
+        hints[n++] = (struct UiHint) { "up/down", "Move" };
+        hints[n++] = (struct UiHint) { "enter", "Done" };
+        hints[n++] = (struct UiHint) { "esc", "Cancel" };
+    }
+    else if (entry_count && entries[selected].is_dir)
+    {
+        hints[n++] = (struct UiHint) { "enter", "Open" };
+        hints[n++] = (struct UiHint) { "menu", "Settings" };
+        hints[n++] = (struct UiHint) { "left/right", "Page" };
+        hints[n++] = (struct UiHint) { "esc", "Quit" };
+    }
+    else
+    {
+        if (entry_count)
+        {
+            hints[n++] = (struct UiHint) { "enter", "Play" };
+            hints[n++] = (struct UiHint) { "tab", "Move" };
+        }
+        hints[n++] = (struct UiHint) { "menu", "Settings" };
+        hints[n++] = (struct UiHint) { "esc", "Quit" };
+    }
+    ui_footer(hints, n);
+}
+
+/* Moves entries[from] to 'to', the ones between moving up or down one. */
+static void move_entry(int from, int to)
+{
+    if (from == to)
+        return;
+    struct Entry moved = entries[from];
+    if (from < to)
+        memmove(&entries[from], &entries[from + 1], (size_t) (to - from) * sizeof(*entries));
+    else
+        memmove(&entries[to + 1], &entries[to], (size_t) (from - to) * sizeof(*entries));
+    entries[to] = moved;
 }
 
 /* The full path of an entry in the current folder. */
@@ -240,12 +347,14 @@ static void entry_path(const struct Entry *entry, char *path, size_t size)
 enum BrowserResult browser_run(char *path, size_t size)
 {
     int selected = 0, top = 0;
+    int moving = 0, move_from = 0;   /* the selected game is being moved, from move_from */
     enum BrowserResult chosen = BROWSER_QUIT;
 
     snprintf(current_dir, sizeof(current_dir), "%s",
              dir_exists(cfg.rom_dir) ? cfg.rom_dir : platform_exe_dir());
     read_dir();
     gui_wait_release();
+    gui_digits_move(false);   /* number keys start games here */
 
     /* Coming back from a game, start on that game. */
     const char *last = strrchr(path, '/');
@@ -263,11 +372,47 @@ enum BrowserResult browser_run(char *path, size_t size)
         if (selected >= top + LIST_ROWS)
             top = selected - LIST_ROWS + 1;
 
-        draw_browser(selected, top);
+        draw_browser(selected, top, moving);
         gui_present();
 
         enum GuiAction action = gui_input();
-        if (action == GUI_BACK || action == GUI_QUIT)
+        if (action == GUI_QUIT)
+            break;
+
+        /* Moving a game: the arrows (or 8/2/5/4/6) move it among the games,
+         * enter or tab puts it there and saves the order, esc puts it back. */
+        if (moving)
+        {
+            if (action == GUI_UP || action == GUI_DOWN || action == GUI_LEFT || action == GUI_RIGHT)
+            {
+                int step = action == GUI_UP ? -1 : action == GUI_DOWN ? 1
+                         : action == GUI_LEFT ? -LIST_ROWS : LIST_ROWS;
+                int target = selected + step;
+                if (target < first_game)
+                    target = first_game;
+                if (target > entry_count - 1)
+                    target = entry_count - 1;
+                move_entry(selected, target);
+                selected = target;
+            }
+            else if (action == GUI_SELECT || platform_key_pressed(KEY_TAB))
+            {
+                moving = 0;
+                gui_digits_move(false);
+                if (selected != move_from && !write_order())
+                    gui_message("Couldn't save the order of the games.", "The calculator may be out of space.");
+            }
+            else if (action == GUI_BACK)
+            {
+                move_entry(selected, move_from);
+                selected = move_from;
+                moving = 0;
+                gui_digits_move(false);
+            }
+            continue;
+        }
+
+        if (action == GUI_BACK)
             break;
         if (action == GUI_MENU)
         {
@@ -279,7 +424,9 @@ enum BrowserResult browser_run(char *path, size_t size)
                 entry_path(&entries[selected], rom, sizeof(rom));
                 config_open_game(rom);
             }
+            gui_digits_move(true);
             enum ListMenuResult result = menu_run_list(on_game ? rom : NULL);
+            gui_digits_move(false);
             if (on_game)
                 config_close_game();
             if (result == LIST_MENU_QUIT)
@@ -291,11 +438,49 @@ enum BrowserResult browser_run(char *path, size_t size)
                 chosen = result == LIST_MENU_START ? BROWSER_START : BROWSER_START_WITHOUT_STATE;
                 break;
             }
+            if (result == LIST_MENU_MOVE && on_game)
+            {
+                moving = 1;
+                move_from = selected;
+                gui_digits_move(true);
+            }
+            if (result == LIST_MENU_SORT)
+            {
+                char order[800], keep[256];
+                snprintf(keep, sizeof(keep), "%s", entries[selected].name);
+                folder_file(order, sizeof(order), ORDER_FILE);
+                remove(order);
+                read_dir();
+                for (int i = 0; i < entry_count; i++)
+                    if (strcmp(entries[i].name, keep) == 0)
+                        selected = i;
+            }
             gui_wait_release();
             continue;
         }
         if (entry_count == 0)
             continue;
+
+        /* A number key starts that game: 1 the first, 0 the tenth. */
+        int digit = gui_digit_pressed();
+        if (digit >= 0)
+        {
+            int game = nth_game(digit ? digit : 10);
+            if (game < 0)
+                continue;
+            selected = game;
+            action = GUI_SELECT;
+        }
+        else if (platform_key_pressed(KEY_TAB))
+        {
+            if (!entries[selected].is_dir)
+            {
+                moving = 1;
+                move_from = selected;
+                gui_digits_move(true);
+            }
+            continue;
+        }
 
         if (action == GUI_UP)
             selected = (selected + entry_count - 1) % entry_count;
@@ -343,6 +528,7 @@ enum BrowserResult browser_run(char *path, size_t size)
         }
     }
 
+    gui_digits_move(true);
     free(entries);
     entries = NULL;
     entry_count = entry_capacity = 0;

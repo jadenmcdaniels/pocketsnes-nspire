@@ -104,24 +104,43 @@ static void draw_switch(int right, int y, bool on)
     draw_round_rect(on ? x + 12 : x + 1, y + 1, 9, 9, 4, COLOR_WHITE);
 }
 
-void ui_row(int y, int icon, uint16_t icon_color, const char *label, const char *value, int flags)
+/* A row with an icon, or a key cap where the icon goes ('key' not NULL). */
+static void row(int y, int icon, uint16_t icon_color, const char *key, const char *label, const char *value,
+                int flags)
 {
-    bool selected = flags & ROW_SELECTED;
+    bool moving = flags & ROW_MOVING;
+    bool selected = moving || (flags & ROW_SELECTED);
     uint16_t ink = flags & ROW_FAINT ? COLOR_TEXT_FAINT : selected ? COLOR_TEXT : COLOR_TEXT_DIM;
 
-    if (selected)
+    if (moving)
+    {
+        draw_round_rect(5, y, 304, UI_ROW_H, 4, COLOR_SELECT);
+        draw_round_frame(5, y, 304, UI_ROW_H, 4, COLOR_VALUE);
+    }
+    else if (selected)
     {
         draw_round_rect(5, y, 304, UI_ROW_H, 4, COLOR_SELECT);
         draw_rect(5, y + 3, 2, UI_ROW_H - 6, COLOR_SELECT_EDGE);
     }
     int x = 12;
-    if (icon != ICON_NONE)
+    if (key)
+    {
+        ui_key(key, x, y + 1, selected);
+        x += 18;
+    }
+    else if (icon != ICON_NONE)
     {
         draw_icon(icon, x, y + 2, selected ? COLOR_TEXT : icon_color);
         x += 18;
     }
 
     int right = 300;
+    if (moving)
+    {
+        draw_icon(ICON_ARROW_UP, 297, y + 3, COLOR_VALUE);
+        draw_icon(ICON_ARROW_DOWN, 297, y + 8, COLOR_VALUE);
+        right -= 10;
+    }
     if (flags & ROW_SUBMENU)
         draw_icon(ICON_CHEVRON, 300, y + 4, selected ? COLOR_TEXT : COLOR_TEXT_FAINT);
     int value_w = 0;
@@ -148,6 +167,16 @@ void ui_row(int y, int icon, uint16_t icon_color, const char *label, const char 
         value_w = w + (arrows ? 12 : 0);
     }
     draw_string_fit(FONT_SMALL, label, x, y + 2, right - x - value_w - 8, ink);
+}
+
+void ui_row(int y, int icon, uint16_t icon_color, const char *label, const char *value, int flags)
+{
+    row(y, icon, icon_color, NULL, label, value, flags);
+}
+
+void ui_row_key(int y, const char *key, const char *label, const char *value, int flags)
+{
+    row(y, ICON_NONE, 0, key, label, value, flags);
 }
 
 void ui_scrollbar(int first, int shown, int total, int y, int h)
