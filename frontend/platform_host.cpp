@@ -16,7 +16,11 @@
  *   quit            close, like closing the window
  *
  * KEY is a name from keys.cpp ("esc", "enter", "ctrl", "up", "S", ...) or a
- * key number. The script quits when it runs out of lines. */
+ * key number. The script quits when it runs out of lines.
+ *
+ * For the tests, --log FILE appends a line to FILE for every CPU clock
+ * change asked for and every message shown in the game, and --stuck-clock
+ * acts like a calculator whose clock doesn't change when asked. */
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,6 +59,8 @@ static int script_wait;
 static uint32_t script_keys[4];
 static struct { int key; int polls; } releases[16];
 static char shots_dir[1024] = ".";
+static char log_path[1024];
+static int clock_stuck;
 
 #ifdef HOST_SDL
 static SDL_Window *window;
@@ -274,6 +280,10 @@ int platform_init(int *argc, char **argv)
             snprintf(exe_dir, sizeof(exe_dir), "%s", argv[++i]);
         else if (strcmp(argv[i], "--scale") == 0 && i + 1 < *argc)
             scale = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--log") == 0 && i + 1 < *argc)
+            snprintf(log_path, sizeof(log_path), "%s", argv[++i]);
+        else if (strcmp(argv[i], "--stuck-clock") == 0)
+            clock_stuck = 1;
         else
             argv[out++] = argv[i];
     }
@@ -426,18 +436,48 @@ uint32_t platform_cpu_mhz(void)
     return 0;
 }
 
-/* The PC only remembers what it was asked, for the tests. */
+void platform_log(const char *text)
+{
+    if (!log_path[0])
+        return;
+    FILE *f = fopen(log_path, "a");
+    if (f)
+    {
+        fprintf(f, "%s\n", text);
+        fclose(f);
+    }
+}
+
+/* The PC only remembers (and logs) what it was asked, and reports the clock
+ * asked for as the one measured: 12 MHz times the multiplier, or 396 MHz,
+ * the CX II's own, for 0 or with --stuck-clock. */
 static int cpu_multiplier;
 
-int platform_set_cpu_multiplier(int multiplier)
+uint32_t platform_set_cpu_multiplier(int multiplier)
 {
+    if (multiplier != cpu_multiplier)
+    {
+        char line[32];
+        snprintf(line, sizeof(line), "clock x%d", multiplier);
+        platform_log(line);
+    }
     cpu_multiplier = multiplier;
-    return 1;
+    return multiplier && !clock_stuck ? (uint32_t) multiplier * 12 : 396;
+}
+
+uint32_t platform_cpu_normal_mhz(void)
+{
+    return 396;
 }
 
 int platform_cpu_multiplier(void)
 {
     return cpu_multiplier ? cpu_multiplier : 33;
+}
+
+void platform_clock_report(char *text, size_t size)
+{
+    snprintf(text, size, "PC build, clock x%d asked for", platform_cpu_multiplier());
 }
 
 void platform_set_game_frames_by_dma(int dma)

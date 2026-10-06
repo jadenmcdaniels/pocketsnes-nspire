@@ -25,4 +25,8 @@ enum ListMenuResult
  * way to start the game without loading its newest state. */
 enum ListMenuResult menu_run_list(const char *rom_path);
 
+/* The first start's welcome: where ROMs go, the keys, and how saving works.
+ * Waits for a key. */
+void menu_show_welcome(void);
+
 #endif

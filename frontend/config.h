@@ -97,6 +97,8 @@ void config_default_keys(void);
 /* Loads pocketsnes.cfg.tns from the program's folder (missing settings get
  * their defaults). */
 void config_load(void);
+/* There was no settings file to load: PocketSNES runs for the first time. */
+int  config_first_start(void);
 /* Writes the settings for all games to pocketsnes.cfg.tns, and the open
  * game's own settings and keys to its own file, "<ROM name>.cfg.tns" in the
  * game's .pocketsnes folder (removed when it has neither). */

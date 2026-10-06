@@ -6,6 +6,7 @@
 #include "config.h"
 #include "emu.h"
 #include "gui.h"
+#include "menu.h"
 #include "platform.h"
 #include "states.h"
 
@@ -66,6 +67,13 @@ int main(int argc, char **argv)
     return 0;
 #endif
 
+    /* The first time, a word on where ROMs go and which keys do what. */
+    if (config_first_start())
+    {
+        menu_show_welcome();
+        config_save();
+    }
+
     /* A ROM path on the command line (e.g. from a file association) skips
      * the browser the first time. */
     if (argc > 1)
@@ -85,7 +93,9 @@ int main(int argc, char **argv)
         if (!emu_load_game(rom))
         {
             const char *slash = strrchr(rom, '/');
-            gui_message("Couldn't load this ROM:", slash ? slash + 1 : rom);
+            char line[600];
+            snprintf(line, sizeof(line), "Couldn't load %s", slash ? slash + 1 : rom);
+            gui_message(line, "Is it a SNES ROM? It may also be too big to fit.");
             continue;
         }
 

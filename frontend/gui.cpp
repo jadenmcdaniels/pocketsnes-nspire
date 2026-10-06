@@ -82,20 +82,37 @@ void gui_wait_release(void)
     held_direction = GUI_NONE;
 }
 
-void gui_message(const char *line1, const char *line2)
+void gui_show_until_key(void (*draw)(const void *data), const void *data)
 {
-    draw_clear(COLOR_BG);
-    draw_text(line1, COLOR_ACTIVE_ITEM, COLOR_BG, 10, 100, 0);
-    if (line2)
-        draw_text(line2, COLOR_ROM_INFO, COLOR_BG, 10, 112, 0);
-    draw_text("Press any key.", COLOR_HELP_TEXT, COLOR_BG, 10, 140, 0);
+    draw(data);
     gui_present();
-
     gui_wait_release();
     do
     {
         platform_poll_keys();
+        draw(data);
         gui_present();
     } while (!platform_any_key_down() && !platform_quit_requested());
     gui_wait_release();
+}
+
+struct MessageLines
+{
+    const char *line1, *line2;
+};
+
+static void draw_message(const void *data)
+{
+    const struct MessageLines *m = (const struct MessageLines *) data;
+    draw_clear(COLOR_BG);
+    draw_text(m->line1, COLOR_ACTIVE_ITEM, COLOR_BG, 10, 100, 0);
+    if (m->line2)
+        draw_text(m->line2, COLOR_ROM_INFO, COLOR_BG, 10, 112, 0);
+    draw_text("Press any key.", COLOR_HELP_TEXT, COLOR_BG, 10, 140, 0);
+}
+
+void gui_message(const char *line1, const char *line2)
+{
+    struct MessageLines m = { line1, line2 };
+    gui_show_until_key(draw_message, &m);
 }

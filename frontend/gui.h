@@ -33,6 +33,11 @@ void gui_present(void);
  * on the next one. */
 void gui_wait_release(void);
 
+/* Shows what 'draw' draws until a key is pressed and let go. It draws again
+ * for every frame: the screen buffers take turns (platform.h), so a screen
+ * drawn only once would alternate with an old one. */
+void gui_show_until_key(void (*draw)(const void *data), const void *data);
+
 /* Draws a message and waits for a key. */
 void gui_message(const char *line1, const char *line2);
 

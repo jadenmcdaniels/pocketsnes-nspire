@@ -137,7 +137,16 @@ static void draw_browser(int selected, int top)
                   10, LIST_Y + row * TEXT_H, 0);
     }
     if (entry_count == has_parent)
-        draw_text("No games in this folder.", COLOR_HELP_TEXT, COLOR_BG, 10, LIST_Y + 2 * TEXT_H, 0);
+    {
+        static const char *const hint[] =
+        {
+            "No games in this folder. Copy SNES ROMs to the",
+            "calculator named like game.sfc.tns (it only takes",
+            ".tns files), or pick another folder (.. goes up).",
+        };
+        for (int i = 0; i < 3; i++)
+            draw_text(hint[i], COLOR_HELP_TEXT, COLOR_BG, 10, LIST_Y + (2 + i) * TEXT_H, 0);
+    }
 
     draw_text("Enter: open   Left/Right: page   Esc: quit", COLOR_HELP_TEXT, COLOR_BG, 10, 215, 0);
     draw_text("Menu: settings (for the game, or all games)", COLOR_HELP_TEXT, COLOR_BG, 10, 225, 0);

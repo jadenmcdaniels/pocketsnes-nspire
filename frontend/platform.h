@@ -3,6 +3,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define SCREEN_W 320
@@ -161,10 +162,17 @@ uint32_t platform_cpu_mhz(void);
  * calculator's own on battery; 24: 288 MHz on USB). Raising it speeds up
  * memory too, and too high a value freezes the calculator.
  * platform_set_cpu_multiplier(0) puts back the calculator's own setting,
- * which platform_shutdown() also does. Returns 0 where it can't be set. */
-int platform_set_cpu_multiplier(int multiplier);
+ * which platform_shutdown() also does. Returns the clock afterwards in MHz,
+ * measured after a change (the PC build reports what was asked for), or 0
+ * where it can't be set. */
+uint32_t platform_set_cpu_multiplier(int multiplier);
+/* The calculator's own clock in MHz (0 if not known), for the menu. */
+uint32_t platform_cpu_normal_mhz(void);
 /* The multiplier in the clock register now, or 0 if it can't be read. */
 int platform_cpu_multiplier(void);
+/* A line about the clock register and the last change, for the speed test
+ * results. */
+void platform_clock_report(char *text, size_t size);
 
 /* Game frames (platform_frame_begin) shown by the DMA controller, a little
  * faster but not in step with the LCD (it can tear), instead of turned into
@@ -198,5 +206,8 @@ const char *platform_exe_dir(void);
 
 /* PC build only: the window was closed. Always 0 on the calculator. */
 int platform_quit_requested(void);
+
+/* PC build only: a line for the test log (--log). Nothing on the calculator. */
+void platform_log(const char *text);
 
 #endif

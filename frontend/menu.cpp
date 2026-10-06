@@ -9,6 +9,7 @@
 #include "menu.h"
 #include "platform.h"
 #include "states.h"
+#include "version.h"
 
 #define HELP_Y       210
 #define HELP_LINES   3
@@ -166,30 +167,32 @@ static const char *const fps_modes[] = { "off", "on", "detailed" };
 static const char *const sram_write_modes[] = { "on exit only", "automatically" };
 static const char *const scopes[] = { "all games", "this game only" };
 static const char *const screen_outputs[] = { "no tearing", "DMA (faster, can tear)" };
-static const char *const cpu_speeds[] = { "normal (396 MHz)", "432 MHz", "456 MHz", "480 MHz" };
+/* "normal" shows the calculator's own clock (288 MHz while USB is plugged in). */
+static char normal_cpu_speed[24] = "normal";
+static const char *const cpu_speeds[] = { normal_cpu_speed, "432 MHz", "456 MHz", "480 MHz" };
 
 #define FRAMESKIP_OPTIONS \
     { OPTION_CHOICE, "Frameskip type: %s", \
-      "Automatic: skip drawing frames only when the game falls behind. " \
-      "Manual: always draw 1 of every N+1 frames. Off: draw every frame.", \
+      "Automatic (recommended) skips drawing only when the game falls " \
+      "behind, so it keeps full speed. Manual draws 1 in N+1 frames. Off " \
+      "draws every frame.", \
       0, &cfg.frameskip_type, frameskip_types, NUM_FRAMESKIP_TYPES - 1, NULL, NULL, NULL, 0 }, \
     { OPTION_NUMBER, "Frameskip value: %d", \
       "Automatic: the most frames skipped in a row. Manual: N, the frames " \
       "skipped for every frame drawn.", \
       1, &cfg.frameskip_value, NULL, MAX_FRAMESKIP_VALUE, NULL, NULL, NULL, 0 }, \
     { OPTION_CHOICE, "Show FPS counter: %s", \
-      "Frames drawn / expected per second (like lr-gpsp-nspire). Detailed adds " \
-      "the game's real speed and ms per frame, logged to pocketsnes_perf.txt.", \
+      "Frames drawn per second / the most there can be: 60/60 is full speed. " \
+      "Detailed adds timings, also logged to pocketsnes_perf.txt.", \
       2, &cfg.show_fps, fps_modes, 2, NULL, NULL, NULL, 0 }, \
     { OPTION_CHOICE, "Screen output: %s", \
-      "No tearing: frames go to the buffer the screen shows next. DMA: " \
-      "copied by the DMA chip, a little faster, but fast scrolling can " \
-      "show a split line.", \
+      "No tearing (recommended): every frame appears whole. DMA: a little " \
+      "faster, but fast scrolling can show a split line (tearing).", \
       3, &cfg.screen_dma, screen_outputs, 1, NULL, NULL, NULL, 0 }, \
     { OPTION_CHOICE, "CPU speed: %s", \
-      "Raises the clock while a game runs; menus stay normal. Uses more " \
-      "battery. If it freezes the calculator, the next start is back at " \
-      "normal.", \
+      "Overclocks while a game runs (menus stay normal); the game shows the " \
+      "speed it got. Uses more battery. If it freezes, the next start is " \
+      "back at normal.", \
       4, &cfg.cpu_speed, cpu_speeds, NUM_CPU_SPEEDS - 1, NULL, NULL, NULL, 0 }
 
 #define BACK_OPTION(line) \
@@ -227,8 +230,8 @@ static struct Option savestate_options[] =
       "it once, press menu on the game in the game list.",
       2, &cfg.load_on_start, off_on, 1, NULL, NULL, NULL, 0 },
     { OPTION_CHOICE, "Write in-game saves: %s",
-      "When the game's own battery save (SRAM) is written to the calculator. "
-      "Automatically: a few seconds after the game saves.",
+      "When the save you make inside the game (its battery save) is written "
+      "to the calculator. Automatically: a few seconds after the game saves.",
       3, &cfg.sram_autosave, sram_write_modes, 1, NULL, NULL, NULL, 0 },
     BACK_OPTION(5),
 };
@@ -291,7 +294,7 @@ MENU(list_graphics_menu, list_graphics_options, 40, "Graphics and performance");
 MENU(savestate_menu, savestate_options, 40, "Save state options");
 MENU(button_menu, button_options, 30, "SNES buttons");
 MENU(hotkey_menu, hotkey_options, 30, "Hotkeys");
-MENU(about_menu, about_options, 40, "About");
+MENU(about_menu, about_options, 40, "Controls and about");
 
 #define SCOPE_OPTIONS(line) \
     { OPTION_CHOICE, "Settings for: %s", \
@@ -329,7 +332,8 @@ static struct Option main_options[] =
       12, NULL, NULL, 0, restart_game, NULL, NULL, 0 },
     { OPTION_ACTION, "Return to game", "Close this menu and keep playing.",
       13, NULL, NULL, 0, return_to_game, NULL, NULL, 0 },
-    { OPTION_SUBMENU, "About", "Credits.", 14, NULL, NULL, 0, NULL, &about_menu, NULL, 0 },
+    { OPTION_SUBMENU, "Controls and about", "The keys as they are set now, and credits.",
+      14, NULL, NULL, 0, NULL, &about_menu, NULL, 0 },
     { OPTION_ACTION, "Exit PocketSNES", "Quit to the calculator.",
       16, NULL, NULL, 0, exit_app, NULL, NULL, 0 },
 };
@@ -467,7 +471,14 @@ static void draw_header(const struct Menu *menu)
     }
 
     if (menu->title)
+    {
         draw_text(menu->title, COLOR_ACTIVE_ITEM, COLOR_BG, 10, 10, 0);
+        if (menu == &graphics_menu && emu_game_mhz() && !show_status)
+        {
+            snprintf(text, sizeof(text), "The game ran at %u MHz (measured).", (unsigned) emu_game_mhz());
+            draw_text(text, COLOR_HELP_TEXT, COLOR_BG, 10, 25, 0);
+        }
+    }
     else if (in_game)
     {
         snprintf(text, sizeof(text), "%s", file_name(emu_rom_path()));
@@ -500,27 +511,142 @@ static void draw_header(const struct Menu *menu)
     }
 }
 
+/* ---- Controls page (Controls and about, and the welcome screen) ---- */
+
+#define CONTROLS_COLUMNS 51
+
+/* Text built up a line at a time from items, wrapped at CONTROLS_COLUMNS. */
+struct Wrap
+{
+    char line[CONTROLS_COLUMNS + 8];
+    int x, y, indent;
+};
+
+static void wrap_flush(struct Wrap *w)
+{
+    if ((int) strlen(w->line) > w->indent)
+    {
+        draw_text(w->line, COLOR_INACTIVE_ITEM, COLOR_BG, w->x, w->y, 0);
+        w->y += TEXT_H;
+    }
+    snprintf(w->line, sizeof(w->line), "%*s", w->indent, "");
+}
+
+static void wrap_add(struct Wrap *w, const char *item)
+{
+    if ((int) strlen(w->line) > w->indent && strlen(w->line) + 3 + strlen(item) > CONTROLS_COLUMNS)
+        wrap_flush(w);
+    size_t len = strlen(w->line);
+    snprintf(w->line + len, sizeof(w->line) - len, "%s%s", (int) len > w->indent ? "   " : "", item);
+}
+
+/* "ctrl", "ctrl or Z", or "" when the action has no key. */
+static void action_keys(int action, char *text, size_t size)
+{
+    char first[24], second[24];
+    const struct Binding *b = cfg.keys[action];
+    text[0] = 0;
+    if (b[0].key && b[1].key)
+        snprintf(text, size, "%s or %s", binding_name(b[0], first, sizeof(first)),
+                 binding_name(b[1], second, sizeof(second)));
+    else if (b[0].key || b[1].key)
+        snprintf(text, size, "%s", binding_name(b[0].key ? b[0] : b[1], first, sizeof(first)));
+}
+
+/* The keys as they are set now, from y down; returns the y below them. */
+static int draw_controls(int y)
+{
+    struct Wrap w;
+    char keys[56], item[128];
+
+    w.x = 10;
+    w.y = y;
+    w.indent = 2;
+    snprintf(w.line, sizeof(w.line), "  ");
+
+    draw_text("SNES buttons", COLOR_ROM_INFO, COLOR_BG, 10, w.y, 0);
+    w.y += TEXT_H;
+    /* The arrows always move; the d-pad's own keys come after them. */
+    char dpad[4][24];
+    int dpad_keys = 1;
+    for (int i = 0; i < 4; i++)
+    {
+        action_keys(ACTION_UP + i, dpad[i], sizeof(dpad[i]));
+        dpad_keys &= dpad[i][0] && !strchr(dpad[i], ' ');
+    }
+    if (dpad_keys)
+        snprintf(item, sizeof(item), "D-pad = arrows or %s %s %s %s", dpad[0], dpad[1], dpad[2], dpad[3]);
+    else
+        snprintf(item, sizeof(item), "D-pad = arrows");
+    wrap_add(&w, item);
+    for (int i = ACTION_A; i <= ACTION_SELECT; i++)
+    {
+        action_keys(i, keys, sizeof(keys));
+        snprintf(item, sizeof(item), "%s = %s", action_names[i], keys[0] ? keys : "(none)");
+        wrap_add(&w, item);
+    }
+    wrap_flush(&w);
+
+    draw_text("Hotkeys", COLOR_ROM_INFO, COLOR_BG, 10, w.y, 0);
+    w.y += TEXT_H;
+    for (int i = FIRST_HOTKEY; i < NUM_ACTIONS; i++)
+    {
+        action_keys(i, keys, sizeof(keys));
+        if (!keys[0])
+            continue;
+        snprintf(item, sizeof(item), "%s = %s", action_names[i], keys);
+        wrap_add(&w, item);
+    }
+    wrap_flush(&w);
+    return w.y;
+}
+
 static void draw_about(void)
+{
+    static const char *const credits[] =
+    {
+        "Snes9x 1.43 by the Snes9x team; PocketSNES by",
+        "Nebuleon, ported to the TI-Nspire by gameblabla.",
+        "Menu after lr-gpsp-nspire; Ndless by its team.",
+    };
+    char title[64];
+    snprintf(title, sizeof(title), "PocketSNES for TI-Nspire, version %s", POCKETSNES_VERSION);
+    draw_text(title, COLOR_ACTIVE_ITEM, COLOR_BG, 10, 25, 0);
+    int y = draw_controls(40);
+    y += TEXT_H / 2;
+    draw_text("Menus: arrows or 8 5 4 6 move, enter selects,", COLOR_HELP_TEXT, COLOR_BG, 10, y, 0);
+    draw_text("esc goes back. In the game list, menu = settings.", COLOR_HELP_TEXT, COLOR_BG, 10, y + TEXT_H, 0);
+    y += 2 * TEXT_H + TEXT_H / 2;
+    /* Above "Back" (with many hotkeys set there may be no room). */
+    if (y + 3 * TEXT_H <= 40 + 16 * TEXT_H)
+        for (size_t i = 0; i < sizeof(credits) / sizeof(credits[0]); i++)
+            draw_text(credits[i], COLOR_HELP_TEXT, COLOR_BG, 10, y + (int) i * TEXT_H, 0);
+}
+
+static void draw_welcome(const void *data)
 {
     static const char *const lines[] =
     {
-        "PocketSNES for TI-Nspire",
-        "",
-        "Snes9x 1.43 core by the Snes9x team",
-        "PocketSNES port by gameblabla",
-        "Menu modeled on lr-gpsp-nspire (andymcca)",
-        "and gpSP by Exophase",
-        "Ndless by the Ndless team",
-        "",
-        "Hotkeys (change them in Configure hotkeys):",
-        "  esc  menu          Q  quit",
-        "  S    save state    L  load state",
-        "  F    fast forward",
-        "In the game list, menu opens the settings.",
+        "Put SNES ROMs on the calculator named like",
+        "game.sfc.tns (it only takes .tns files), in any",
+        "folder. Pick one in the game list to play.",
+        "Leaving a game (Q, or Exit in the menu) saves your",
+        "place, and the game starts there next time.",
+        "Settings: menu key in the game list, esc in a game.",
     };
+    (void) data;
+
+    draw_clear(COLOR_BG);
+    draw_text("Welcome to PocketSNES!", COLOR_ACTIVE_ITEM, COLOR_BG, 10, 8, 0);
+    int y = draw_controls(24) + TEXT_H / 2;
     for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]); i++)
-        draw_text(lines[i], i == 0 ? COLOR_ACTIVE_ITEM : COLOR_INACTIVE_ITEM, COLOR_BG,
-                  10, 30 + (int) i * TEXT_H, 0);
+        draw_text(lines[i], COLOR_ROM_INFO, COLOR_BG, 10, y + (int) i * TEXT_H, 0);
+    draw_text("Press any key to start.", COLOR_ACTIVE_ITEM, COLOR_BG, 10, 222, 0);
+}
+
+void menu_show_welcome(void)
+{
+    gui_show_until_key(draw_welcome, NULL);
 }
 
 static void draw_menu(const struct Menu *menu, int selected)
@@ -558,18 +684,28 @@ static int bindable(int key)
     return key && key_name(key) && !key_is_reserved(key);
 }
 
-/* Sets the picked key slot to the next key pressed, or to a combination:
- * a key held while another is pressed. */
-static void choose_binding(const struct Menu *menu, const struct Option *option)
+/* The menu with "<press keys>" in the picked key slot of the selected line. */
+static void draw_binding_prompt(const struct Menu *menu, int selected)
 {
+    const struct Option *option = &menu->options[selected];
     int y = menu->first_y + option->line * TEXT_H;
     int x = BINDING_X(key_column);
-    int held = 0;
-    struct Binding chosen = { 0, 0 };
 
+    draw_menu(menu, selected);
     draw_rect(x - TEXT_W, y, SCREEN_W - (x - TEXT_W), TEXT_H, COLOR_BG);
     draw_text("<press keys>", COLOR_WARNING, COLOR_BG, x - TEXT_W, y, 0);
     gui_present();
+}
+
+/* Sets the picked key slot of the selected line to the next key pressed, or
+ * to a combination: a key held while another is pressed. */
+static void choose_binding(const struct Menu *menu, int selected)
+{
+    const struct Option *option = &menu->options[selected];
+    int held = 0;
+    struct Binding chosen = { 0, 0 };
+
+    draw_binding_prompt(menu, selected);
     gui_wait_release();
 
     while (!chosen.key)
@@ -593,7 +729,7 @@ static void choose_binding(const struct Menu *menu, const struct Option *option)
                     chosen.with = (uint8_t) held;
                     break;
                 }
-        gui_present();
+        draw_binding_prompt(menu, selected);
     }
     cfg.keys[option->action_id][key_column] = chosen;
     gui_wait_release();
@@ -636,6 +772,9 @@ static enum Step run(struct Menu *top)
 
     status[0] = 0;
     key_column = 0;
+    if (platform_cpu_normal_mhz())
+        snprintf(normal_cpu_speed, sizeof(normal_cpu_speed), "normal (%u MHz)",
+                 (unsigned) platform_cpu_normal_mhz());
     own_settings = (uint32_t) config_game_has_settings();
     own_keys = (uint32_t) config_game_has_keys();
 
@@ -676,7 +815,7 @@ static enum Step run(struct Menu *top)
                 menu = top;
             }
             else if (option->type == OPTION_BINDING)
-                choose_binding(menu, option);
+                choose_binding(menu, selected);
             else if (option->type == OPTION_CHOICE)
                 change_value(option, 1);
             else if (option->action)

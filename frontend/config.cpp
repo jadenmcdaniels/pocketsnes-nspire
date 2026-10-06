@@ -19,6 +19,7 @@ struct Config cfg;
 static struct Config global;
 static char game_file[800];   /* the open game's own file, or "" */
 static int game_own_settings, game_own_keys;
+static int settings_file_found;
 
 const char *const action_names[NUM_ACTIONS] =
 {
@@ -212,6 +213,7 @@ void config_load(void)
 
     config_path(path, sizeof(path));
     read_file(path, &global, &info);
+    settings_file_found = info.found;
     if (info.found && info.version < 2)
     {
         /* Version 1 always wrote auto_increment, so its old default (off)
@@ -348,6 +350,11 @@ void config_close_game(void)
     snprintf(cfg.rom_dir, sizeof(cfg.rom_dir), "%s", rom_dir);
     game_file[0] = 0;
     game_own_settings = game_own_keys = 0;
+}
+
+int config_first_start(void)
+{
+    return !settings_file_found;
 }
 
 int config_game_is_open(void)

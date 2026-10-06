@@ -128,6 +128,14 @@ static bool message_visible;
 static bool sram_dirty;
 static uint32_t sram_dirty_tick;
 
+/* The clock the game runs at: measured after every change (platform.h),
+ * shown in a message when it changes, and at the start of a game when it is
+ * raised. A raised speed the clock didn't reach isn't tried again until the
+ * setting changes. */
+static uint32_t game_mhz;
+static int shown_multiplier = -1;   /* the speed last shown in this game; -1: none yet */
+static int failed_multiplier;
+
 static void game_speed(void);
 static void normal_speed(void);
 static void left_game(void);
@@ -238,6 +246,26 @@ void emu_show_message(const char *text)
     message_until = platform_ticks() + platform_tick_hz() * 2;
     message_visible = true;
     clear_screens_later();
+
+    char line[sizeof(message) + 16];
+    snprintf(line, sizeof(line), "message: %s", message);
+    platform_log(line);
+}
+
+/* Adds to the message on screen if there's room on its line, or shows a new
+ * one. */
+static void add_message(const char *text)
+{
+    size_t both = strlen(message) + 2 + strlen(text);
+    if (message_visible && (int32_t) (message_until - platform_ticks()) > 0 &&
+        both < sizeof(message) && both <= SCREEN_W / TEXT_W - 1)
+    {
+        char line[sizeof(message)];
+        snprintf(line, sizeof(line), "%s, %s", message, text);
+        emu_show_message(line);
+    }
+    else
+        emu_show_message(text);
 }
 
 static void show_slot_message(const char *format, int slot)
@@ -920,7 +948,8 @@ void emu_speed_test(int close_after_seconds)
     /* At the speed the game runs at (the menu runs at normal speed). */
     game_speed();
     uint32_t mhz = platform_cpu_mhz();
-    int multiplier = platform_cpu_multiplier();
+    char clock_report[200];
+    platform_clock_report(clock_report, sizeof(clock_report));
 
     if (!S9xFreezeToMemory(&snapshot, &snapshot_size))
     {
@@ -978,6 +1007,7 @@ void emu_speed_test(int close_after_seconds)
     free(snapshot);
     clear_screens_later();
     normal_speed();
+    shown_multiplier = -1;   /* the game shows its clock again when it resumes */
 
     /* A new file each run: appending to the old one has left it garbled on
      * the calculator now and then. */
@@ -986,9 +1016,8 @@ void emu_speed_test(int close_after_seconds)
     FILE *f = fopen(path, "w");
     if (f)
     {
-        fprintf(f, "== %s, build %s, cpu %u MHz (clock register x%d), screen: %s\n", game_title,
-                BUILD_NAME, (unsigned) mhz, multiplier,
-                platform_screen_mode_name());
+        fprintf(f, "== %s, build %s, cpu %u MHz, screen: %s\n%s\n", game_title, BUILD_NAME,
+                (unsigned) mhz, platform_screen_mode_name(), clock_report);
         for (int i = 0; i < done; i++)
             fprintf(f, "%s\n%s\n", results[i][0], results[i][1]);
         fclose(f);
@@ -1000,7 +1029,12 @@ void emu_speed_test(int close_after_seconds)
     for (;;)
     {
         draw_clear(COLOR_BG);
-        draw_text("Speed test: frames per second, then ms per frame", COLOR_ACTIVE_ITEM, COLOR_BG, 4, 10, 0);
+        char title[64];
+        if (mhz)
+            snprintf(title, sizeof(title), "Speed test at %u MHz: fps, then ms per frame", (unsigned) mhz);
+        else
+            snprintf(title, sizeof(title), "Speed test: frames per second, then ms per frame");
+        draw_text(title, COLOR_ACTIVE_ITEM, COLOR_BG, 4, 10, 0);
         for (int i = 0; i < done; i++)
         {
             draw_text(results[i][0], COLOR_ROM_INFO, COLOR_BG, 4, 30 + i * 2 * TEXT_H, 0);
@@ -1055,6 +1089,13 @@ void emu_benchmark(void)
 
 static bool clock_marker_written;
 
+/* Within 2% of 12 MHz times the multiplier. */
+static bool clock_reached(uint32_t mhz, int multiplier)
+{
+    uint32_t want = (uint32_t) multiplier * 12;
+    return mhz * 50 >= want * 49 && mhz * 50 <= want * 51;
+}
+
 static void clock_marker_path(char *path, size_t size)
 {
     snprintf(path, size, "%s/%s", platform_exe_dir(), CLOCK_MARKER);
@@ -1063,7 +1104,9 @@ static void clock_marker_path(char *path, size_t size)
 static void game_speed(void)
 {
     int multiplier = config_cpu_multiplier(cfg.cpu_speed);
-    if (multiplier && !clock_marker_written)
+    if (multiplier != failed_multiplier)
+        failed_multiplier = 0;
+    if (multiplier && !clock_marker_written && multiplier != failed_multiplier)
     {
         char path[600];
         clock_marker_path(path, sizeof(path));
@@ -1077,8 +1120,37 @@ static void game_speed(void)
             clock_marker_written = true;
         }
     }
-    platform_set_cpu_multiplier(multiplier);
+
+    char text[48] = "";
+    if (multiplier && multiplier == failed_multiplier)
+    {
+        game_mhz = platform_set_cpu_multiplier(0);
+        if (multiplier != shown_multiplier)
+            snprintf(text, sizeof(text), "CPU speed not raised (still %u MHz)", (unsigned) game_mhz);
+    }
+    else
+    {
+        game_mhz = platform_set_cpu_multiplier(multiplier);
+        if (multiplier && game_mhz && !clock_reached(game_mhz, multiplier))
+        {
+            /* The clock didn't get there: back to normal, and say so. */
+            failed_multiplier = multiplier;
+            game_mhz = platform_set_cpu_multiplier(0);
+            snprintf(text, sizeof(text), "CPU speed not raised (still %u MHz)", (unsigned) game_mhz);
+        }
+        else if (multiplier != shown_multiplier && (multiplier || shown_multiplier > 0) && game_mhz)
+            snprintf(text, sizeof(text), multiplier ? "CPU %u MHz" : "CPU %u MHz (normal)",
+                     (unsigned) game_mhz);
+    }
+    if (text[0])
+        add_message(text);
+    shown_multiplier = multiplier;
     platform_set_game_frames_by_dma((int) cfg.screen_dma);
+}
+
+uint32_t emu_game_mhz(void)
+{
+    return game_mhz;
 }
 
 static void normal_speed(void)
@@ -1167,6 +1239,7 @@ enum EmuExit emu_run(int may_load_state)
     fast_forward = false;
     pending = 0;
     message_visible = false;
+    shown_multiplier = -1;
     perf_line[0] = 0;
     clear_screens_later();
 
@@ -1218,6 +1291,7 @@ enum EmuExit emu_run(int may_load_state)
         {
             normal_speed();
             perf_log_flush();
+            message_visible = false;   /* only messages from the menu show after it */
             enum MenuResult result = menu_run();
             if (result != MENU_RESUME)
             {

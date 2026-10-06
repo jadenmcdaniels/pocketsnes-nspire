@@ -32,12 +32,15 @@ for path in PPU/Mode7/RotZoom/RotZoom.sfc PPU/Mode7/Perspective/Perspective.sfc 
 done
 [ -f "$ROMS/SramWrite.sfc" ] || python3 tests/make_sram_rom.py "$ROMS/SramWrite.sfc"
 
-# setup NAME ROM [config lines...]: a fake calculator folder layout in $OUT/NAME
+# setup NAME ROM [config lines...]: a fake calculator folder layout in $OUT/NAME,
+# with a settings file (just "config_version=2" if no lines are given), so
+# PocketSNES isn't on its first start and doesn't show the welcome screen
 setup() {
     local dir=$OUT/$1 rom=$2
     shift 2
     mkdir -p "$dir/ndless" "$dir/roms" "$dir/shots"
     cp "$ROMS/$rom" "$dir/roms/$rom.tns"
+    [ $# -gt 0 ] || set -- config_version=2
     for line in "$@"; do echo "$line" >> "$dir/ndless/pocketsnes.cfg.tns"; done
 }
 
@@ -49,6 +52,18 @@ play() {
     (cd "$dir" && "$HOST" --script "$script" --shots shots --exe-dir ndless \
         ${1:+roms/$1.tns} >/dev/null 2>&1)
 }
+
+# play_logged NAME SCRIPT ROM [options]: like play, with the PC build's test
+# log (clock changes and messages) in $OUT/NAME/log.txt
+play_logged() {
+    local dir=$OUT/$1 script rom=$3
+    script=$(realpath "$2")
+    shift 3
+    (cd "$dir" && "$HOST" --script "$script" --shots shots --exe-dir ndless --log log.txt "$@" \
+        "roms/$rom.tns" >/dev/null 2>&1)
+}
+# The clock changes and CPU messages in a test log, on one line.
+clock_log() { grep -e '^clock' -e '^message: CPU' "$1" | tr '\n' '|'; }
 
 same() { cmp -s "$1" "$2" && echo same || echo different; }
 exists() { [ -e "$1" ] && echo yes || echo no; }
@@ -138,6 +153,21 @@ play clockgame tests/scripts/after_crash.txt MonsterFarmJump.sfc
 check "$(grep -c -e '^own_settings=1$' -e '^cpu_speed=0$' "$game_cfg")" 2 \
     "... also when it was the game's own setting"
 
+# Changing the setting in the in-game menu changes the clock when the game
+# resumes, and the game says what it got.
+setup clockmenu MonsterFarmJump.sfc config_version=2 save_on_exit=0 load_on_start=0
+play_logged clockmenu tests/scripts/cpu_speed_menu.txt MonsterFarmJump.sfc
+check "$(clock_log "$OUT/clockmenu/log.txt")" \
+    "clock x40|message: CPU 480 MHz|clock x0|message: CPU 396 MHz (normal)|" \
+    "480 MHz set in the menu raises the clock when the game resumes; normal puts it back"
+# A calculator whose clock doesn't move: back to normal, and the game says so.
+setup clockstuck MonsterFarmJump.sfc config_version=2 cpu_speed=3 save_on_exit=0 load_on_start=0
+play_logged clockstuck tests/scripts/wait_quit.txt MonsterFarmJump.sfc --stuck-clock
+check "$(clock_log "$OUT/clockstuck/log.txt")" \
+    "clock x40|clock x0|message: CPU speed not raised (still 396 MHz)|" \
+    "a clock that doesn't reach the speed goes back to normal and says so"
+check "$(exists "$OUT/clockstuck/ndless/pocketsnes_clock.tns")" no "... and leaves no freeze marker"
+
 echo "== In-game saves (SRAM)"
 setup sram SramWrite.sfc
 (cd "$OUT/sram" && timeout -s KILL 4 "$HOST" --script "$forever" \
@@ -159,6 +189,19 @@ game_cfg=$OUT/menu/roms/.pocketsnes/MonsterFarmJump.sfc.cfg.tns
 check "$(grep -c -e '^own_settings=1$' -e '^auto_increment=1$' "$game_cfg" 2>/dev/null)" 2 \
     "settings for this game only: auto-increment went back on for the game"
 check "$(grep -c '^auto_increment=0$' "$cfg")" 1 "... and stayed off for all games"
+
+echo "== First start"
+# No settings file yet: a welcome screen first, then the game list; the next
+# start goes straight to the game list.
+setup first MonsterFarmJump.sfc
+rm "$OUT/first/ndless/pocketsnes.cfg.tns"
+play first tests/scripts/first_start.txt
+d=$OUT/first/shots
+check "$(same "$d/start.png" "$d/list.png")" different "the first start shows a welcome screen, a key goes on to the game list"
+check "$(exists "$OUT/first/ndless/pocketsnes.cfg.tns")" yes "... and the settings file is written then"
+mv "$d/list.png" "$d/list_first.png"
+play first tests/scripts/first_start.txt
+check "$(same "$d/start.png" "$d/list_first.png")" same "the next start goes straight to the game list"
 
 echo "== ROM browser"
 setup browser MonsterFarmJump.sfc

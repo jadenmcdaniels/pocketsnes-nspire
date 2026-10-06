@@ -3,6 +3,7 @@
 #define EMU_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 enum EmuExit
 {
@@ -40,13 +41,16 @@ int  emu_load_state(int slot);    /* 1 ok, 0 empty slot, -1 unreadable */
 void emu_reset_game(void);
 /* Shows a short message over the game. */
 void emu_show_message(const char *text);
+/* The CPU clock in MHz the game last ran at (measured on the calculator),
+ * or 0 if not known yet. */
+uint32_t emu_game_mhz(void);
 /* Runs the game from the current point in a few speed modes for about 35
  * seconds, then shows the results and writes them to
  * pocketsnes_results.txt.tns (replacing the last ones). With close_after_seconds set, the results screen
  * closes by itself. The game is put back where it was. */
 void emu_speed_test(int close_after_seconds);
 /* For the speed test build: plays 5 seconds so the caches are warm and the
- * timer's rate has been checked, writes pocketsnes_diag.txt.tns, then runs
+ * clock has settled, writes pocketsnes_diag.txt.tns, then runs
  * the speed test and closes it. */
 void emu_benchmark(void);
 
