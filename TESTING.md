@@ -67,7 +67,9 @@ game, the CPU speed setting (the menu's choice reaches the clock when the
 game resumes; a clock that doesn't move goes back to normal and says so; a
 freeze at a raised speed is undone at the next start), that in-game saves
 are written without quitting, the menu, the welcome screen on the first
-start, the game list and its menu. Results and screenshots go to
+start, the game list and its menu (number keys starting games, moving a game
+with tab or the menu, the order kept, esc putting it back, sorting A to Z
+again). Results and screenshots go to
 `tests/out/`. Every test starts with a settings file (so not on a "first
 start") unless it removes it.
 

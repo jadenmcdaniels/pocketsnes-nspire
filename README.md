@@ -35,7 +35,7 @@ Quick start
    `Super Mario World.sfc.tns`. Any folder works.
 4. **Open `pocketsnes.tns`** on the calculator. The first time, a welcome
    screen shows the keys. Then the game list opens: pick a game and press
-   enter.
+   enter, or press the number shown next to it.
 5. After the first run, opening a ROM in the calculator's documents starts
    PocketSNES with it (Ndless file association for `.sfc`, `.smc`, `.fig`
    and `.swc`).
@@ -78,6 +78,13 @@ On touchpad calculators, the touchpad's arrows work as the d-pad.
 selects, esc goes back, left/right change a setting. In the game list,
 left/right turn a page and the menu key opens the settings.
 
+**The game list.** The first ten games show the number key that starts them
+(1 to 9, then 0), so in the game list the number keys start games and only
+the arrows move. To change the order, press **tab** on a game (or *Move in
+the list* in its menu), move it with up/down and press enter; esc puts it
+back. Each folder keeps its order. *Sort the list A to Z* in a game's menu
+goes back to alphabetical.
+
 
 The menu, setting by setting
 ----------------------------
@@ -96,7 +103,7 @@ a state), or on a folder for the settings for all games.
 | Frameskip value | **5** (0-9) | Automatic: the most frames skipped in a row. Manual: N. |
 | Show FPS counter | **off**, on, detailed | Frames drawn per second / the most there can be, e.g. 60/60 is full speed and 49/60 means some frames weren't drawn. Detailed adds how long each part takes (game, drawing, output) and logs it to `pocketsnes_perf.txt.tns`. |
 | Screen output (CX II) | **no tearing**, DMA | No tearing: every frame shows whole. DMA: the DMA chip copies frames, which is a little faster, but fast scrolling can show a split line. |
-| CPU speed (CX II) | **normal**, 432, 456, 480 MHz | Raises the CPU clock while a game runs (menus and saving stay at normal speed). Normal is 396 MHz, or 288 MHz while USB is plugged in. The game shows the speed it got when it starts. Uses more battery. If a speed freezes the calculator, the next start goes back to normal and says so. **Experimental:** on some calculators the clock doesn't change yet; the message then says "CPU speed not raised". |
+| CPU speed (CX II) | **normal**, 432, 456, 480 MHz | Raises the CPU clock while a game runs (menus and saving stay at normal speed). Normal is 396 MHz, or 288 MHz while USB is plugged in. The game shows the speed it got when it starts ("CPU 432 MHz"), measured. Memory speeds up with it, and how far a calculator goes varies: start with 432. Uses more battery. If a speed freezes the calculator, the next start goes back to normal and says so. |
 | Run speed test | | In a game only: runs it from where you are in five ways for about 35 seconds and shows frames per second and where the time goes. The game is put back where it was. Results are also written to `pocketsnes_results.txt.tns`. |
 
 ### Save state options
@@ -141,6 +148,7 @@ Everything goes in a `.pocketsnes` folder next to the ROM:
 | `game.sfc.srm.tns` | the in-game save |
 | `game.sfc.sv001.tns` ... `game.sfc.sv999.tns` | save states (compressed) |
 | `game.sfc.cfg.tns` | the game's own settings or keys, if it has any |
+| `game_order.txt.tns` | the order of the folder's games, once you've moved one |
 
 Next to `pocketsnes.tns`:
 
@@ -323,11 +331,16 @@ decides per frame whether to draw it. Interrupts stay off while PocketSNES
 runs.
 
 **CPU speed.** The CX II's power controller (0x90140000) holds the clock
-multiplier in bits 24-29 of 0x90140030 (12 MHz × 33 = 396 MHz). PocketSNES
-writes it the way NoverII does, idles the CPU for a millisecond, then times a
-loop of known length against the 32 kHz timer to see what clock it really
-got. A marker file guards against freezes. See `platform_nspire.cpp`
-("CPU clock") and FINDINGS.md.
+multiplier in bits 24-29 of 0x90140030 (12 MHz × 33 = 396 MHz), but writing
+it changes nothing by itself. PocketSNES switches the way the OS does (its
+code is in the on-chip SRAM): normal memory goes into self-refresh, and for
+each step of the multiplier the register is written, the switch started
+through register 0x20 and the power controller's interrupt awaited. That
+runs from the SRAM (`clock_switch_nspire.S`), with the LCD reading the OS's
+on-chip buffer meanwhile. Afterwards a loop of known length is timed against
+the 32 kHz timer to see what clock it really got. A marker file guards
+against freezes. `tools/clocktest` checks the switch on its own. See
+`platform_nspire.cpp` ("CPU clock") and FINDINGS.md.
 
 **Settings file.** `name=value` lines (`config_version=2`,
 `frameskip_type`, `cpu_speed`, ... `key_a=122`, `key_a_2=121+20` for shift+3).
@@ -358,8 +371,9 @@ Credits and license
   by gameblabla.
 * The menu follows lr-gpsp-nspire (gpSP by Exophase, Nspire port by
   andymcca).
-* Ndless by the Ndless team. The CPU speed method is NoverII's, by Xavier
-  Andreani. Hardware details from Hackspire and the Firebird emulator.
+* Ndless by the Ndless team. The clock register was found by Wenting Zhang
+  (zephray) and NoverII (Xavier Andreani); the switch follows the OS's own.
+  Hardware details from Hackspire and the Firebird emulator.
 
 Snes9x is free for non-commercial use: "Permission to use, copy, modify and
 distribute Snes9x in both binary and source form, for non-commercial
