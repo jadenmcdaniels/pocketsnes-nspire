@@ -1,152 +1,269 @@
 PocketSNES for TI-Nspire
 ========================
 
-A Super Nintendo emulator for the TI-Nspire CX and CX II calculators (it
-runs under [Ndless](https://ndless.me)). It is gameblabla's PocketSNES port
-of Snes9x 1.43 with a new front end: a menu like gpSP's, save states with
-999 slots, settings per game, a game list, fast tear-free drawing on the
-CX II, and an optional higher CPU speed.
+Play Super Nintendo games on a TI-Nspire CX or CX II calculator.
 
-There is no sound: the calculator has no speaker.
+This is gameblabla's PocketSNES port of Snes9x 1.43, with a new front end:
+a game list you can sort, a menu like gpSP's, 999 save state slots per game,
+settings per game, smooth tear-free drawing on the CX II, and an overclock
+setting with a test that finds your calculator's highest safe speed.
 
-* [Quick start](#quick-start)
-* [Buttons](#buttons)
-* [The menu, setting by setting](#the-menu-setting-by-setting)
-* [Saving](#saving)
-* [Speed](#speed)
-* [What runs and what doesn't](#what-runs-and-what-doesnt)
-* [Troubleshooting](#troubleshooting)
-* [For developers](#for-developers)
-* [Credits and license](#credits-and-license)
+There's no sound, because the calculator has no speaker.
+
+**Start here:** [Getting started](#getting-started) ·
+[Controls](#controls) · [The game list](#the-game-list) ·
+[Saving](#saving) · [Speed and overclocking](#speed-and-overclocking) ·
+[Troubleshooting](#troubleshooting)
+
+**More detail:** [Every menu setting](#every-menu-setting) ·
+[Files](#files) · [What runs](#what-runs) ·
+[How it got faster](#how-it-got-faster) · [For developers](#for-developers) ·
+[Future steps](#future-steps) · [Credits](#credits-and-license)
 
 
-Quick start
------------
+Getting started
+---------------
 
-1. **Install Ndless** on the calculator (see [ndless.me](https://ndless.me)
-   for your OS version). On a CX II, Ndless has to be switched on again
-   after every reset: open the Ndless installer document.
-2. **Copy `pocketsnes.tns`** to the calculator, in any folder (for example
-   a folder called `snes`), with TI-Nspire Computer Link / Student Software,
-   TiLP or similar. Keep the name `pocketsnes.tns`: that lets ROMs open in it
-   straight from the calculator's documents (step 5).
-3. **Copy your ROMs**, renamed so they end in `.tns`: the calculator only
-   takes `.tns` files. `Super Mario World.sfc` becomes
+You need a TI-Nspire with a colour screen (CX or CX II) and
+[Ndless](https://ndless.me).
+
+1. **Install Ndless** for your OS version (see [ndless.me](https://ndless.me)).
+   On a CX II, Ndless has to be switched on again after every reset: just
+   open the Ndless installer document.
+2. **Copy `pocketsnes.tns` to the calculator**, into any folder (a folder
+   called `snes` works well). Use TI-Nspire Computer Link, the Student
+   Software, TiLP, or any other transfer tool. Keep the name
+   `pocketsnes.tns`, so ROMs can open in it straight from the documents.
+3. **Copy your ROMs over and add `.tns` to their names.** The calculator only
+   accepts `.tns` files, so `Super Mario World.sfc` becomes
    `Super Mario World.sfc.tns`. Any folder works.
-4. **Open `pocketsnes.tns`** on the calculator. The first time, a welcome
-   screen shows the keys. Then the game list opens: pick a game and press
-   enter, or press the number shown next to it.
-5. After the first run, opening a ROM in the calculator's documents starts
-   PocketSNES with it (Ndless file association for `.sfc`, `.smc`, `.fig`
-   and `.swc`).
+4. **Open `pocketsnes.tns`.** The first time, a welcome screen shows the
+   keys. Then the game list opens: pick a game and press **enter**, or press
+   the **number** next to it.
+5. That's it. After the first run, you can also open a ROM straight from the
+   calculator's documents.
 
-Leaving a game with Q (or Exit in the menu) saves where you were, and the
-game picks up there next time. See [Saving](#saving).
-
-
-Buttons
--------
-
-These are the defaults. Every one can be changed (esc, then Configure SNES
-buttons / Configure hotkeys), and each action has room for two keys or key
-combinations. *Controls and about* in the menu always shows the keys as they
-are set.
-
-| SNES          | Calculator                                   |
-|---------------|----------------------------------------------|
-| D-pad         | arrows, or 8 4 6 5 (7 9 1 3 for diagonals)   |
-| A / B         | ctrl / shift                                 |
-| X / Y         | var / del                                    |
-| L / R         | tab / menu                                   |
-| Start / Select| enter / minus (-)                            |
-
-| Hotkey        | Default | Does                                              |
-|---------------|---------|---------------------------------------------------|
-| Menu          | esc     | opens the menu (the game is paused meanwhile)     |
-| Quit          | Q       | leaves the game; saves a state first (unless that's switched off) |
-| Fast forward  | F       | on/off: runs as fast as it can                    |
-| Save state    | S       | saves (to a new slot, with auto-increment on)     |
-| Load state    | L       | loads the selected slot                           |
-| Load newest   | none    | loads the newest state                            |
-| Next / previous slot | none | picks the slot S and L use                   |
-| FPS counter   | none    | shows/hides the FPS counter                       |
-| Restart game  | none    | resets the SNES                                   |
-
-On touchpad calculators, the touchpad's arrows work as the d-pad.
-
-**In menus and the game list:** arrows (or 8 5 4 6) move, enter or click
-selects, esc goes back, left/right change a setting. In the game list,
-left/right turn a page and the menu key opens the settings.
-
-**The game list.** The first ten games show the number key that starts them
-(1 to 9, then 0), so in the game list the number keys start games and only
-the arrows move. To change the order, press **tab** on a game (or *Move in
-the list* in its menu), move it with up/down and press enter; esc puts it
-back. Each folder keeps its order. *Sort the list A to Z* in a game's menu
-goes back to alphabetical.
+When you leave a game with **Q** (or *Exit PocketSNES* in the menu),
+PocketSNES saves where you were, and the game carries on from there next
+time.
 
 
-The menu, setting by setting
-----------------------------
+Controls
+--------
 
-Press **esc** in a game. Settings can be **for all games** or **for this game
-only** (*Settings for* and *Keys for* in the menu). A game's own settings
-are used whenever that game runs. The game list has the same settings: press
-**menu** on a game for that game's settings (and to start it without loading
-a state), or on a folder for the settings for all games.
+### In a game
 
-### Graphics/performance
+| SNES button    | Calculator key                              |
+|----------------|---------------------------------------------|
+| D-pad          | arrows (touchpad), or 8 4 6 5               |
+| A / B          | ctrl / shift                                |
+| X / Y          | var / del                                   |
+| L / R          | tab / menu                                  |
+| Start / Select | enter / minus (−)                           |
 
-| Setting | Choices (default first) | What it does |
-|---|---|---|
-| Frameskip type | **automatic**, manual, off | Automatic skips drawing a frame only when the game falls behind, so the game itself always runs at full speed. Manual always draws 1 frame in N+1. Off draws every frame (smoothest, but the game slows down when drawing can't keep up). |
-| Frameskip value | **5** (0-9) | Automatic: the most frames skipped in a row. Manual: N. |
-| Show FPS counter | **off**, on, detailed | Frames drawn per second / the most there can be, e.g. 60/60 is full speed and 49/60 means some frames weren't drawn. Detailed adds how long each part takes (game, drawing, output) and logs it to `pocketsnes_perf.txt.tns`. |
-| Screen output (CX II) | **no tearing**, DMA | No tearing: every frame shows whole. DMA: the DMA chip copies frames, which is a little faster, but fast scrolling can show a split line. |
-| CPU speed (CX II) | **normal**, 432, 456, 480 MHz | Raises the CPU clock while a game runs (menus and saving stay at normal speed). Normal is 396 MHz, or 288 MHz while USB is plugged in. The game shows the speed it got when it starts ("CPU 432 MHz"), measured. Memory speeds up with it, and how far a calculator goes varies: start with 432. Uses more battery. If a speed freezes the calculator, the next start goes back to normal and says so. |
-| Run speed test | | In a game only: runs it from where you are in five ways for about 35 seconds and shows frames per second and where the time goes. The game is put back where it was. Results are also written to `pocketsnes_results.txt.tns`. |
+| Hotkey       | Key  | What it does                                        |
+|--------------|------|-----------------------------------------------------|
+| Menu         | esc  | opens the menu (the game waits)                     |
+| Quit         | Q    | leaves the game, saving your place first            |
+| Fast forward | F    | on/off: runs as fast as it can                      |
+| Save state   | S    | saves a state (each save gets a new slot)           |
+| Load state   | L    | loads the selected slot                             |
 
-### Save state options
+More hotkeys (load newest, next/previous slot, FPS counter, restart) are
+there but have no key until you give them one. Every key can be changed in
+the menu under *SNES buttons* and *Hotkeys*. Each action takes two keys, and
+a key can be a combination (hold one key and press another). *Controls &
+about* in the menu always shows your keys as they are now.
 
-| Setting | Default | What it does |
-|---|---|---|
-| Auto-increment slot on save | on | Every save goes to a new slot after your highest one, so nothing is ever overwritten. Off: saves go to the selected slot. |
-| Save a state when leaving | on | Q, Exit or Load new game save a state first. |
-| Load newest state on start | on | Starting a game loads its newest state. To start without it once, press menu on the game in the game list and pick *Start without loading a state*. |
-| Write in-game saves | automatically | When the save you make inside the game (its battery save) is written to the calculator: a few seconds after the game saves, or only when you leave. |
+### In menus
 
-### The rest of the in-game menu
+| Key                   | Does                          |
+|-----------------------|-------------------------------|
+| arrows, or 8 5 4 6    | move                          |
+| left / right          | change a setting              |
+| enter (or click)      | select                        |
+| esc                   | back                          |
 
-* **Configure SNES buttons / Configure hotkeys**: left/right pick key 1 or
-  2, enter sets it (press a key, or hold one key and press another for a
-  combination), del clears it. *Reset to defaults* is at the bottom.
-* **Load state from slot / Save state to slot**: left/right pick the slot
-  (hold to go faster).
-* **Settings for / Keys for**: all games, or this game only.
-* **Load new game**, **Restart game**, **Return to game**, **Controls and
-  about** (the keys as set now), **Exit PocketSNES**.
+### In the game list
+
+| Key            | Does                                                   |
+|----------------|--------------------------------------------------------|
+| 1–9, 0         | start that game (the number is shown next to it)       |
+| arrows         | move; left/right turn a page                           |
+| enter          | start the game, or open a folder                       |
+| tab            | pick up the game to move it (see below)                |
+| menu           | settings for that game (or for all games, on a folder) |
+| esc            | quit PocketSNES                                        |
+
+In the game list the number keys start games, so moving is done with the
+arrows there.
+
+
+The game list
+-------------
+
+The list shows the folder PocketSNES was last in. Folders come first, then
+your games. The first ten games have a number next to them: press it to
+start that game right away.
+
+**Putting your games in your own order:** press **tab** on a game (or pick
+*Move in the list* from its menu). The game gets a gold frame. Move it with
+up/down (left/right jump a page), then press **enter** to put it there, or
+**esc** to put it back where it was. Each folder remembers its order. To go
+back to alphabetical, press **menu** on a game and pick *Sort the list A to
+Z*.
+
+The game's menu (the **menu** key) can also start it without loading a
+state (handy if a state is broken) and change its settings.
 
 
 Saving
 ------
 
-There are two kinds of saves:
+There are two kinds of saves, and both happen without you thinking about
+them much:
 
-* **In-game saves** (the game's own save, its "battery save") work as on a
-  real SNES. They're written to the calculator a few seconds after the game
-  saves.
-* **Save states** freeze the whole game at any moment: S saves, L loads,
-  and leaving a game saves one so you can carry on next time. There are 999
-  slots per game. With auto-increment on (the default), each save goes to a
-  new slot, so an old save is never overwritten. Each one takes a few KB to
-  a few dozen KB.
+* **In-game saves** are the game's own saves, like on a real SNES cartridge.
+  PocketSNES writes them to the calculator a couple of seconds after the
+  game saves.
+* **Save states** freeze the whole game at any moment. **S** saves one, **L**
+  loads one, and leaving a game saves one so you can carry on next time.
+  Each game has 999 slots. Every save goes to a new slot, so an old save is
+  never overwritten. A state takes a few dozen KB.
 
-Everything goes in a `.pocketsnes` folder next to the ROM:
+You can pick a slot in the menu (*Save state* / *Load state*, left/right
+choose the slot). Everything a game saves goes in a `.pocketsnes` folder
+next to the ROM.
+
+
+Speed and overclocking
+----------------------
+
+On a CX II at its normal 396 MHz, Super Mario World runs at a full 60 frames
+per second with every frame drawn. Games with extra chips (Super FX like
+Yoshi's Island and Star Fox, or SA-1) are much heavier.
+
+To help a slow game:
+
+* **Keep frameskip on automatic** (the default). The game always runs at
+  full speed and only skips drawing a frame when it has to.
+* **Turn on the FPS counter** (menu → *Graphics & speed*) to see how it's
+  doing: 60/60 is perfect.
+* **Unplug the USB cable.** While it's plugged in, the calculator runs at
+  288 MHz instead of 396.
+* **Overclock** (CX II only), see below.
+
+### Overclocking
+
+*CPU speed* in *Graphics & speed* runs games faster than the calculator's
+normal 396 MHz, in steps of 12 MHz up to 504 MHz. Menus and saving always
+run at normal speed.
+
+How far a calculator can go differs from one to the next. Most manage about
+430 to 490 MHz. The limit is usually the memory: it speeds up together with
+the CPU, but keeps the timings it was set up with for normal speed. Go too
+far and you'll see glitches, then the calculator freezes and needs a reset.
+That doesn't harm it (nothing runs at a higher voltage, and every restart
+goes back to normal speed), but a speed that *sometimes* glitches can
+quietly corrupt the game in memory, and that can end up in a save state.
+
+So **run the overclock test once** to find your calculator's safe speed:
+
+1. Menu → *Graphics & speed* → *Overclock test*. Unplug USB first.
+2. It tries 408, 420, 432 MHz and so on. At each speed it checks the memory
+   and the CPU for 16 seconds, and stops at the first speed that makes an
+   error. A full run takes 1 to 2 minutes; esc stops it.
+3. If the calculator freezes during the test, that's fine: reset it, open
+   Ndless again and start PocketSNES. It knows the test was running and
+   keeps the highest speed that passed.
+4. Then set *CPU speed* to **highest tested**. The menu shows the result,
+   e.g. *highest tested (444 MHz)*.
+
+When a game starts at a raised speed it says what it got ("CPU 444 MHz").
+If a speed ever freezes a game, PocketSNES puts *CPU speed* back to normal
+at the next start and tells you. If a game glitches at the tested speed on a
+hot day or a low battery, pick one step lower.
+
+
+Troubleshooting
+---------------
+
+* **My ROM isn't in the list.** Its name has to end in `.tns`
+  (`game.sfc.tns`). Use *Up a folder* at the top of the list to get to other
+  folders.
+* **"Couldn't load ..."** The file isn't a SNES ROM, it's damaged, or it's
+  too big for the free memory.
+* **A game is slow.** Keep frameskip on automatic, unplug USB, look at the
+  FPS counter, and try overclocking.
+* **The calculator froze.** Press the reset button on the back with a paper
+  clip, then open the Ndless installer again. If it froze at a raised CPU
+  speed, PocketSNES goes back to normal speed by itself.
+* **A save state is broken.** In the game list, press **menu** on the game
+  and choose *Play without a state*.
+* **I want the default settings back.** Delete `pocketsnes.cfg.tns` next to
+  `pocketsnes.tns`.
+* **Opening a ROM from the documents doesn't start PocketSNES.** The program
+  has to be called `pocketsnes.tns` and must have run once.
+
+
+---
+
+*Everything below is reference. You don't need it to play.*
+
+
+Every menu setting
+------------------
+
+Press **esc** in a game for the menu, or **menu** in the game list. Settings
+can be for **all games** or for **one game only**: *Settings for* and *Keys
+for* in the menu switch between the two. A game's own settings are used
+whenever that game runs.
+
+### Graphics & speed
+
+| Setting | Choices (default first) | What it does |
+|---|---|---|
+| Frameskip | **automatic**, manual, off | Automatic skips drawing only when the game falls behind, so the game keeps full speed. Manual draws 1 frame in every N+1. Off draws every frame; the game slows down if drawing can't keep up. |
+| Frames to skip | **5** (0–9) | Automatic: the most frames skipped in a row. Manual: N. |
+| FPS counter | **off**, on, detailed | Frames drawn per second over the most there can be: 60/60 is full speed. Detailed adds how long each part of a frame takes and logs it to `pocketsnes_perf.txt.tns`. |
+| Screen output (CX II) | **no tearing**, DMA | No tearing shows every frame whole. DMA is a little faster but can show a split line when the picture scrolls fast. |
+| CPU speed (CX II) | **normal**, highest tested, 408 … 504 MHz | Overclocks while a game runs. See [Overclocking](#overclocking). |
+| Overclock test (CX II) | | Finds the highest speed that runs without errors. The result shows next to it. |
+| Run speed test | | In a game only: plays from where you are for about 35 seconds in five ways and shows the frame rates. Results also go to `pocketsnes_results.txt.tns`. |
+
+### Saving
+
+| Setting | Default | What it does |
+|---|---|---|
+| Auto-increment slot | on | Every save goes to a new slot, so nothing is overwritten. Off: saves go to the selected slot. |
+| Save when leaving | on | Quitting, or going back to the game list, saves a state first. |
+| Load newest on start | on | Games start from their newest state. *Play without a state* in the game list skips it once. |
+| Write in-game saves | automatic | When the game's own save is written to the calculator: a couple of seconds after the game saves, or only on exit. |
+
+### SNES buttons and Hotkeys
+
+Left/right pick key 1 or key 2, enter sets it (press a key, or hold one key
+and press another for a combination), del clears it. *Reset to defaults* is
+at the bottom. The arrows always work as the d-pad.
+
+### The rest
+
+* **In a game:** *Resume game*, *Save state* / *Load state* (left/right pick
+  the slot, hold to go faster), *Restart game*, *Load another game*,
+  *Controls & about*, *Exit PocketSNES*.
+* **In the game list, on a game:** *Play*, *Play without a state*, *Move in
+  the list*, *Sort the list A to Z*, and the game's settings.
+
+
+Files
+-----
+
+Next to each ROM, in a `.pocketsnes` folder:
 
 | File | What |
 |---|---|
 | `game.sfc.srm.tns` | the in-game save |
-| `game.sfc.sv001.tns` ... `game.sfc.sv999.tns` | save states (compressed) |
+| `game.sfc.sv001.tns` … `game.sfc.sv999.tns` | save states (compressed) |
 | `game.sfc.cfg.tns` | the game's own settings or keys, if it has any |
 | `game_order.txt.tns` | the order of the folder's games, once you've moved one |
 
@@ -154,34 +271,32 @@ Next to `pocketsnes.tns`:
 
 | File | What |
 |---|---|
-| `pocketsnes.cfg.tns` | settings and keys for all games (delete it to start fresh) |
+| `pocketsnes.cfg.tns` | settings and keys for all games, and the overclock test's result (delete it to start fresh) |
+| `pocketsnes_overclock.txt.tns` | what the overclock test found at each speed |
 | `pocketsnes_results.txt.tns` | the last speed test's results |
 | `pocketsnes_perf.txt.tns` | the detailed FPS log, if you turned it on |
-| `pocketsnes_clock.tns` | only while a game runs at a raised CPU speed: if it's still there at the next start, that speed froze the calculator |
+| `pocketsnes_clock.tns` | only there while a game runs overclocked; if it's still there at the next start, that speed froze the calculator |
+| `pocketsnes_octest.tns` | only there while the overclock test runs, for the same reason |
 
 
-Speed
------
+What runs
+---------
 
-On a CX II at its normal 396 MHz, Super Mario World runs at a full 60
-frames per second with every frame drawn; without the speed limit it would
-reach about 66. Games with extra chips (Super FX such as Yoshi's Island and
-Star Fox, or SA-1) are much heavier.
+* Most SNES games run, including ones with DSP-1, DSP-2, Super FX, SA-1,
+  C4, OBC1 and Seta chips (the heavy ones slowly).
+* **S-DD1 and SPC7110 games don't run**: Star Ocean and Street Fighter Alpha
+  2 (S-DD1), Far East of Eden Zero and Momotarou Dentetsu Happy (SPC7110).
+* There's no sound emulation at all, which also saves time.
+* Yoshi's Island shows glitches in the top rows of the picture. That comes
+  from the emulator core; the original port has them too.
+* ROMs can be up to 8 MB, if the calculator has the memory free.
+* Calculators without a colour screen aren't supported.
 
-Tips:
 
-* Keep **frameskip automatic** (the default): the game keeps full speed and
-  only skips drawing when it has to. Use **off** only for games that
-  already reach 60/60.
-* Turn on **Show FPS counter** to see how a game does: 60/60 is perfect.
-* On a CX II, **Screen output: DMA** gains a few percent, at the cost of
-  tearing.
-* Leave the calculator unplugged while playing: on USB the OS runs the CPU
-  at 288 MHz instead of 396.
+How it got faster
+-----------------
 
-### What made it faster
-
-Measured on a CX II at 396 MHz, Super Mario World, every frame drawn:
+Measured on a CX II at 396 MHz with Super Mario World, every frame drawn:
 
 | Version | Frames per second |
 |---|---:|
@@ -189,76 +304,33 @@ Measured on a CX II at 396 MHz, Super Mario World, every frame drawn:
 | The game drawn straight into the frame, -O3 | 48 |
 | Frames handed to the LCD instead of copied ("flip") | 49 |
 | Frames copied by the DMA chip | 50 (no speed limit) |
-| Faster tile drawing and a shortcut for SMW's backdrop | 59 (no speed limit) |
-| Only the 256x224 picture turned for the portrait LCD, tear-free (now) | 66 (no speed limit) |
+| Faster tile drawing, and a shortcut for SMW's backdrop | 59 (no speed limit) |
+| Only the 256×224 picture turned for the portrait LCD, tear-free (now) | 66–68 (no speed limit) |
 
 Where a frame's time went, before and now (ms, no speed limit): running the
 game 5.7 → 6.0, drawing 11.9 → 7.2, getting it on screen 2.7 → 1.8.
 
-The changes, roughly in order (details and measurements in
-[FINDINGS.md](FINDINGS.md)):
-
 * **Drawing straight into the frame.** The original drew into one buffer,
-  copied it to another, and had Ndless's `lcd_blit` copy it again.
-* **The CX II's screen is portrait.** Its LCD reads 320 lines of 240
-  pixels, so a landscape frame has to be turned. Ndless's `lcd_blit` does
-  this through the OS's special LCD memory, which is slow (4 ms a frame).
-  PocketSNES turns only the 256x224 SNES picture (and the text over it) into
-  one of three buffers of its own, in 8-line strips written with burst
-  stores, and points the LCD at that buffer. The LCD switches buffers only
-  between refreshes, so there is no tearing.
-* **DMA output** (optional): the calculator's DMA controller copies frames
-  into the OS's LCD memory while the next frame is drawn.
-* **Tile drawing**: `DrawTile16` / `DrawClippedTile16` keep the renderer's
-  state in registers instead of reloading it for every pixel (14 → 9
-  instructions per pixel), and skip transparent tile lines in one test.
+  copied it to another, and then had Ndless's `lcd_blit` copy it again.
+* **The CX II's screen is portrait.** Its LCD reads 320 lines of 240 pixels,
+  so a landscape frame has to be turned. `lcd_blit` does that through the
+  OS's special LCD memory, which is slow (4 ms a frame). PocketSNES turns
+  only the SNES picture (and the text over it) into one of three buffers of
+  its own and points the LCD at it. The LCD only switches buffers between
+  refreshes, so there's no tearing.
+* **DMA output** (optional): the calculator's DMA chip copies frames into
+  the OS's LCD memory while the next frame is drawn.
+* **Tile drawing** keeps the renderer's state in registers instead of
+  reloading it for every pixel (14 → 9 instructions per pixel).
 * **Backdrop shortcut**: games like Super Mario World put their background
-  on the sub screen with colour maths against a black backdrop; that is now
-  drawn directly instead of being checked pixel by pixel afterwards.
-* **-O3** beat -O2 and -Os.
-* **Timer fix** (2026-10-05): the frame timer's rate used to be "calibrated"
-  while ROMs loaded, which could make games run 5-20% too slow while the FPS
-  counter still showed 60. It's now fixed at the calculator's 32768 Hz.
+  on the sub screen with colour maths over a black backdrop; that's now
+  drawn directly instead of being fixed up pixel by pixel afterwards.
+* **Timer fix**: the frame timer used to be "calibrated" while ROMs loaded,
+  which could make games run 5–20% too slow while the counter still said 60.
 
 Everything draws exactly the same pixels as the original renderer
-(`tests/render_compare.sh` checks that on 16 games and demos).
-
-
-What runs and what doesn't
---------------------------
-
-* Most SNES games run, including ones with DSP-1, DSP-2, Super FX, SA-1,
-  C4, OBC1 and Seta chips (the heavy ones slowly).
-* **S-DD1 and SPC7110 games don't run**: Star Ocean and Street Fighter
-  Alpha 2 (S-DD1; Snes9x 1.43 needs graphics packs for them), Far East of
-  Eden Zero and Momotarou Dentetsu Happy (SPC7110).
-* There is no sound emulation at all, which also saves time.
-* Yoshi's Island shows glitches in the top rows of the picture (from the
-  emulator core; the original port has them too).
-* ROMs can be up to 8 MB, as long as the calculator has the memory free.
-* Calculators without a colour screen aren't supported.
-
-
-Troubleshooting
----------------
-
-* **My ROM isn't in the game list.** Its name must end in `.tns`
-  (`game.sfc.tns`). Use `..` at the top of the list to go to other folders.
-* **"Couldn't load ..."**: the file isn't a SNES ROM (or is damaged), or
-  it's too big.
-* **The game is slow.** Set frameskip to automatic, unplug USB, and look at
-  the FPS counter. A raised CPU speed can help.
-* **The calculator froze.** Press the reset button on the back (a paper
-  clip), then open the Ndless installer again. If it froze at a raised CPU
-  speed, PocketSNES puts the speed back to normal at the next start.
-* **A save state is broken.** In the game list, press menu on the game and
-  choose *Start without loading a state*.
-* **I want my settings back to the defaults.** Delete `pocketsnes.cfg.tns`
-  next to `pocketsnes.tns` (and `.pocketsnes/game.sfc.cfg.tns` for one
-  game's own settings).
-* **Opening a ROM from the documents doesn't start PocketSNES.** The
-  program has to be called `pocketsnes.tns` and have run once. The
-  association lives in `/documents/ndless/ndless.cfg.tns` (`ext.sfc=pocketsnes`).
+(`tests/render_compare.sh` checks that on 16 games and demos). The full
+measurements are in [FINDINGS.md](FINDINGS.md).
 
 
 For developers
@@ -267,27 +339,29 @@ For developers
 ### Building
 
 The calculator build needs the [Ndless SDK](https://github.com/ndless-nspire/Ndless)
-toolchain on PATH (`nspire-g++`, `nspire-ld`, `genzehn`, `make-prg`):
+toolchain on PATH (`nspire-gcc`, `nspire-g++`, `nspire-ld`, `genzehn`,
+`make-prg`):
 
     make -f Makefile.nspire              # makes pocketsnes.tns
+    make -C tools/clocktest              # the stand-alone clock switch test
 
-Variants each need their own `BUILD` folder (make doesn't notice changed
-flags):
+Variants each need their own `BUILD` folder, because make doesn't notice
+changed flags:
 
     make -f Makefile.nspire OPT_LEVEL=-O2 BUILD=build/o2
     make -f Makefile.nspire BENCH=1 BUILD_NAME=mine BUILD=build/bench TARGET=pocketsnes_speedtest
 
-`BENCH=1` makes a speed test build: it plays `Super Mario World (USA).sfc.tns`
-(next to it) from its newest state for 5 seconds, writes
-`pocketsnes_diag.txt.tns` (clock, timer, LCD and DMA registers, memory
-mapping and speeds, a clock switch test), runs the speed test, writes
-`pocketsnes_results.txt.tns` and closes.
+`BENCH=1` makes a build that plays `Super Mario World (USA).sfc.tns` (next to
+it) from its newest state, writes a hardware report
+(`pocketsnes_diag.txt.tns`: clock, timer, LCD, DMA, memory), runs the speed
+test and closes.
 
 The PC test build needs g++ and zlib (and SDL2's headers for a window):
 
     make                                 # makes ./pocketsnes-host
     ./pocketsnes-host                    # the game list, in a window
-    tests/run.sh                         # the test suite (39 checks)
+    tests/run.sh                         # the test suite (54 checks)
+    make unit-tests                      # tile drawing, frame turning, settings
 
 [TESTING.md](TESTING.md) explains the PC build, its script mode and the
 tests.
@@ -298,70 +372,82 @@ tests.
 |---|---|
 | `pocketsnes/snes9x/`, `pocketsnes/include/` | the Snes9x 1.43 core (65c816 CPU, PPU, renderer in `gfx.cpp` and `tile.cpp`, chips) |
 | `frontend/main.cpp` | startup: welcome, game list, game, repeat |
-| `frontend/emu.cpp` | runs the core: frame pacing and frameskip, hotkeys, FPS counter and messages, save states and in-game saves, the speed test, CPU speed changes |
+| `frontend/emu.cpp` | runs the core: frame pacing and frameskip, hotkeys, FPS counter and messages, save states, in-game saves, the speed test, CPU speed changes |
 | `frontend/menu.cpp` | the menus, built from tables of options; the controls page and the welcome screen |
-| `frontend/browser.cpp` | the game list |
+| `frontend/browser.cpp` | the game list: numbers, moving games, the order file |
+| `frontend/overclock.cpp` | the overclock test |
 | `frontend/config.cpp` | settings and keys: the file for all games and each game's own |
 | `frontend/states.cpp` | save state slots and file names |
-| `frontend/gui.cpp`, `draw.cpp`, `font.h`, `keys.cpp` | menu input with key repeat, message screens, text drawing, key names and bindings |
+| `frontend/ui.cpp`, `gui.cpp`, `draw.cpp`, `fonts.h`, `icons.h`, `keys.cpp` | the look of every screen, menu input, text and icons, key names and bindings |
 | `frontend/rotate.cpp` | turning frames for the CX II's portrait LCD |
 | `frontend/platform.h` | everything hardware: screen, keys, timer, CPU clock |
-| `frontend/platform_nspire.cpp` | ... on the calculator (Ndless) |
-| `frontend/platform_host.cpp` | ... on a PC, for testing (SDL2 window or scripted, in virtual time) |
-| `tests/` | `run.sh`, its scripts, `unit_tests.cpp`, `render_compare.sh` |
+| `frontend/platform_nspire.cpp`, `clock_switch_nspire.S` | … on the calculator |
+| `frontend/platform_host.cpp` | … on a PC, for testing (SDL2 window, or scripted in virtual time) |
+| `tests/` | `run.sh` and its scripts, `unit_tests.cpp`, `render_compare.sh` |
+| `tools/` | the clock switch test, the font and icon generators |
 | `FINDINGS.md` | what was measured and learned about the hardware |
-| `menu/`, `sal/`, `sdl/`, `unused/` | the original port's front end, not built any more |
+| `menu/`, `sal/`, `sdl/`, `unused/` | the original port's front end, no longer built |
 
 ### How it works
 
-**A frame.** The core draws the 256x224 picture straight into a 320x240
-RGB565 buffer (`platform_screen()`, with spare lines around it because the
-renderer writes whole 8x8 tiles). On a CX II the frontend then turns the
-picture into one of three portrait buffers (`platform_frame_begin/copy/
-present`, `rotate_block`) and writes that buffer's address to the LCD
-controller (a PL111 at 0xC0000000); with DMA output, the DMA controller (an
+**A frame.** The core draws the 256×224 picture straight into a 320×240
+RGB565 buffer (with spare lines around it, because the renderer writes
+whole 8×8 tiles). On a CX II the front end then turns the picture into one
+of three portrait buffers and writes that buffer's address to the LCD
+controller (a PL111 at 0xC0000000). With DMA output, the DMA controller (an
 FTDMAC020 at 0xBC000000) copies the landscape frame to the OS's LCD memory
-at 0xA8000000 instead. Other calculators use Ndless's `lcd_blit`. Menus use
-the same buffers, which take turns, so every screen redraws everything each
-frame.
+at 0xA8000000 instead. Other calculators use Ndless's `lcd_blit`.
 
-**Timing.** The first SP804 timer (0x900C0000) runs free at 32768 Hz;
-`emu.cpp` paces frames in 16.16 fixed-point ticks (60 or 50 per second) and
-decides per frame whether to draw it. Interrupts stay off while PocketSNES
-runs.
+**Timing.** The first SP804 timer (0x900C0000) runs free at 32768 Hz.
+`emu.cpp` paces frames in 16.16 fixed-point ticks and decides for each frame
+whether to draw it. Interrupts stay off while PocketSNES runs.
 
 **CPU speed.** The CX II's power controller (0x90140000) holds the clock
-multiplier in bits 24-29 of 0x90140030 (12 MHz × 33 = 396 MHz), but writing
-it changes nothing by itself. PocketSNES switches the way the OS does (its
-code is in the on-chip SRAM): normal memory goes into self-refresh, and for
-each step of the multiplier the register is written, the switch started
-through register 0x20 and the power controller's interrupt awaited. That
-runs from the SRAM (`clock_switch_nspire.S`), with the LCD reading the OS's
-on-chip buffer meanwhile. Afterwards a loop of known length is timed against
-the 32 kHz timer to see what clock it really got. A marker file guards
-against freezes. `tools/clocktest` checks the switch on its own. See
-`platform_nspire.cpp` ("CPU clock") and FINDINGS.md.
+multiplier in bits 24–29 of 0x90140030 (12 MHz × 33 = 396 MHz), but writing
+the register does nothing by itself. PocketSNES switches the way the OS does
+(its code lives in the on-chip SRAM): normal memory goes into self-refresh,
+and for each step of the multiplier the register is written, the switch is
+started through register 0x20, and the CPU waits for the power controller's
+interrupt. That code runs from the SRAM (`clock_switch_nspire.S`), with the
+LCD reading the OS's on-chip buffer meanwhile. After each switch, a loop of
+known length is timed against the 32 kHz timer to check the clock really
+changed. Marker files catch freezes. Details in FINDINGS.md.
 
-**Settings file.** `name=value` lines (`config_version=2`,
-`frameskip_type`, `cpu_speed`, ... `key_a=122`, `key_a_2=121+20` for shift+3).
-Key numbers are lr-gpsp-nspire's: 1 + the bit index in the keypad
-registers. A game's own file adds `own_settings=1` / `own_keys=1`. Unknown
-lines are ignored, so older and newer builds can share the file.
+**The overclock test** fills a buffer of up to 8 MB (far bigger than the
+8 KB data cache) with patterns, reads them back and inverts them, over and
+over, and checks a CPU calculation against its result at normal speed. Two
+rounds of 8 seconds per speed, each after its own clock switch.
 
-**Save states** are Snes9x snapshots compressed with zlib, written
-through a buffer in memory.
+**Settings file.** `name=value` lines (`config_version=3`, `frameskip_type`,
+`cpu_speed`, `highest_tested_mhz`, … `key_a=122`, `key_a_2=121+20` for
+shift+3). Key numbers are lr-gpsp-nspire's. A game's own file adds
+`own_settings=1` / `own_keys=1`. Unknown lines are ignored, so older and
+newer builds can share the file; version 2 files' CPU speeds are converted.
 
-### On the calculator
+**Save states** are Snes9x snapshots compressed with zlib.
 
-* *Run speed test* (in a game's Graphics/performance menu) is the quickest
-  way to see what a change does; the `BENCH=1` build does the same unattended
-  and adds the hardware report.
-* Any USB transfer tool works (TI's software, TiLP, or one built on
-  libnspire). Files sent to the calculator must end in `.tns`, which is why
-  the result files are called `*.txt.tns`.
-* FINDINGS.md lists what's known about the LCD, DMA, memory speeds, the
-  on-chip SRAM and the clock, and ideas not tried yet (ARM assembly for tile
-  drawing, profile-guided optimisation).
+
+Future steps
+------------
+
+Ideas that haven't been done yet, roughly from most to least promising:
+
+* **Tile drawing in ARM assembly.** Drawing is still the biggest part of a
+  frame. snes9x2002 has an ARM assembly tile renderer that could be ported.
+* **Profile-guided optimisation**: compile, record a run, compile again
+  using the recording.
+* **Rendering into the on-chip SRAM**, which is several times faster than
+  normal memory for reads. Two earlier tries froze the calculator; it later
+  turned out the MMU's page table lives in the SRAM at 0xA4004000, which
+  those tries overwrote, so a retry that leaves the first 32 KB alone might
+  work.
+* **A higher overclock ceiling.** The memory keeps its normal-speed timings
+  when overclocked, which is probably what limits most calculators. Working
+  out the memory controller's timing registers could let calculators go
+  further.
+* **S-DD1 and SPC7110 support** (Star Ocean, Street Fighter Alpha 2, Far East
+  of Eden Zero).
+* **Yoshi's Island's top-row glitches** in the core's Super FX code.
 
 
 Credits and license
@@ -374,6 +460,7 @@ Credits and license
 * Ndless by the Ndless team. The clock register was found by Wenting Zhang
   (zephray) and NoverII (Xavier Andreani); the switch follows the OS's own.
   Hardware details from Hackspire and the Firebird emulator.
+* Fonts: Spleen by Frederic Cambus (BSD 2-Clause).
 
 Snes9x is free for non-commercial use: "Permission to use, copy, modify and
 distribute Snes9x in both binary and source form, for non-commercial
