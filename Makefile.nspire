@@ -46,8 +46,11 @@ FRONTEND_SRC = frontend/keys.cpp frontend/draw.cpp frontend/ui.cpp frontend/conf
                frontend/gui.cpp frontend/browser.cpp frontend/menu.cpp frontend/emu.cpp \
                frontend/main.cpp frontend/rotate.cpp frontend/platform_nspire.cpp
 
+# The CPU clock switch, copied into the on-chip SRAM to run (platform_nspire.cpp).
+FRONTEND_ASM = frontend/clock_switch_nspire.S
+
 CORE_OBJ     = $(patsubst %.cpp,$(BUILD)/%.o,$(CORE_SRC))
-FRONTEND_OBJ = $(patsubst %.cpp,$(BUILD)/%.o,$(FRONTEND_SRC))
+FRONTEND_OBJ = $(patsubst %.cpp,$(BUILD)/%.o,$(FRONTEND_SRC)) $(patsubst %.S,$(BUILD)/%.o,$(FRONTEND_ASM))
 
 all: $(TARGET).tns
 
@@ -58,6 +61,10 @@ $(BUILD)/pocketsnes/%.o: pocketsnes/%.cpp
 $(BUILD)/frontend/%.o: frontend/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(FRONTEND_FLAGS) -MMD -c $< -o $@
+
+$(BUILD)/frontend/%.o: frontend/%.S
+	@mkdir -p $(dir $@)
+	$(CC) $(ARCH) -c $< -o $@
 
 $(BUILD)/$(TARGET).elf: $(CORE_OBJ) $(FRONTEND_OBJ)
 	$(LD) $^ -o $@ $(LDFLAGS)

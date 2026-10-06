@@ -681,101 +681,42 @@ const char *platform_screen_mode_name(void)
  *
  * The CX II's power controller (0x90140000, Firebird's "Aladdin PMU") has a
  * clock register: the multiplier of the 12 MHz base clock in bits 24-29 (the
- * CPU clock: the OS sets 33, 396 MHz, or 24, 288 MHz while USB is plugged
- * in) and the bus divider in bits 16-20 (2: the bus runs at half the CPU
- * clock, so memory speeds up with it). Writing the register raises the
- * controller's interrupt (Firebird). NoverII (Xavier Andreani's CX II
- * overclocker) writes it with bit 0 set and bit 4 cleared, with interrupts
- * turned on (TCT_Local_Control_Interrupts(0)), then sleeps a millisecond in
- * the Ndless SDK's msleep of the time, which idles the CPU until a timer
- * interrupt; so the OS's interrupt handlers, the power controller's among
- * them, run meanwhile. PocketSNES first tries the same with interrupts left
- * off (the CPU still idles), and if the measured clock didn't move, does it
- * NoverII's way, and keeps doing that. Every switch is checked by timing a
- * loop against the 32 kHz timer. tools/clocktest tries the ways one by one. */
+ * OS sets 33, 396 MHz, or 24, 288 MHz while USB is plugged in) and the bus
+ * divider in bits 16-20 (2: the bus runs at half the CPU clock, so memory
+ * speeds up with it). Writing the register alone changes nothing (seen with
+ * tools/clocktest, on USB and on battery, also NoverII's way). The OS's own
+ * switch, in the on-chip SRAM from 0xA4001640 (FINDINGS.md), puts normal
+ * memory to sleep (self-refresh), then for each multiplier step writes the
+ * register, writes 0x10000100 to register 0x20 and waits for the power
+ * controller's interrupt, then wakes the memory. clock_switch_nspire.S does
+ * the same, from the SRAM, because normal memory sleeps meanwhile; that is
+ * also why the LCD reads the OS's buffer (on-chip memory) during a switch.
+ * Every switch is checked by timing a loop against the 32 kHz timer. */
 #define CLOCK_CONTROL  (*(volatile uint32_t *) 0x90140030)
-#define PMU_INTERRUPTS (*(volatile uint32_t *) 0x90140024)   /* only read, for the reports */
+#define PMU_COMMAND    (*(volatile uint32_t *) 0x90140020)   /* only read here */
+#define PMU_FLAGS      (*(volatile uint32_t *) 0x90140024)   /* only read here */
+#define MEMC_STATE     (*(volatile uint32_t *) 0x90120004)   /* bit 10: normal memory sleeps */
 #define CLOCK_MULTIPLIER(value) ((int) (((value) >> 24) & 0x3F))
+#define LCD_CURRENT    (*(volatile uint32_t *) 0xC000002C)   /* where the LCD reads now */
 
-/* Ndless's msleep timer: the second SP804 dual timer, at 32768 Hz, which is
- * interrupt 19 at the interrupt controller (a PL190). */
-#define IDLE_TIMER_LOAD    (*(volatile uint32_t *) 0x900D0000)
-#define IDLE_TIMER_VALUE   (*(volatile uint32_t *) 0x900D0004)
-#define IDLE_TIMER_CONTROL (*(volatile uint32_t *) 0x900D0008)
-#define IDLE_TIMER_CLEAR   (*(volatile uint32_t *) 0x900D000C)
-#define IDLE_TIMER_RAW     (*(volatile uint32_t *) 0x900D0010)
-#define IRQ_RAW            (*(volatile uint32_t *) 0xDC000008)
-#define IRQ_ENABLE         (*(volatile uint32_t *) 0xDC000010)
-#define IRQ_DISABLE        (*(volatile uint32_t *) 0xDC000014)
-#define IDLE_TIMER_IRQ     (1u << 19)
+/* The second SP804 dual timer, at 32768 Hz: the switch gives up on a step
+ * that doesn't finish when it runs out (interrupt 19). It belongs to the OS
+ * (and Ndless's msleep), so it is put back afterwards. */
+#define T2_LOAD    (*(volatile uint32_t *) 0x900D0000)
+#define T2_CONTROL (*(volatile uint32_t *) 0x900D0008)
+#define T2_CLEAR   (*(volatile uint32_t *) 0x900D000C)
+#define T2_SPEED   (*(volatile uint32_t *) 0x900D0080)
 
-/* The Ndless SDK's idle() and msleep() as NoverII has them (taken from its
- * binary): the second timer counts down once and the CPU idles until an
- * interrupt; with interrupts on, the OS handles it. */
-static void noverii_idle(void)
-{
-    uint32_t enabled = IRQ_ENABLE;
-    IRQ_DISABLE = ~IDLE_TIMER_IRQ;
-    __asm__ volatile ("mcr p15, 0, %0, c7, c0, 4" : : "r" (0) : "memory");
-    IDLE_TIMER_CLEAR = 1;
-    IRQ_DISABLE = 0xFFFFFFFF;
-    IRQ_ENABLE = enabled;
-}
+/* Where the switch runs in the SRAM: past the OS's code (0xA4000000) and
+ * the MMU's page table (0xA4004000-0xA4007FFF), in 1 KB that was zero in
+ * every dump. What's there is put back after each switch. */
+#define SWITCH_SRAM       ((uint8_t *) 0xA4035000)
+#define SWITCH_STEP_TICKS 1092   /* a step may take 1/30 s */
+extern "C" const uint8_t clock_switch_code[], clock_switch_code_end[];
 
-static void noverii_msleep(unsigned ms)
-{
-    uint32_t control = IDLE_TIMER_CONTROL, load = IDLE_TIMER_LOAD;
-    IDLE_TIMER_CONTROL = 0;
-    IDLE_TIMER_CONTROL = 0x63;
-    IDLE_TIMER_CONTROL = 0xE3;
-    IDLE_TIMER_LOAD = ms * 32;
-    for (int polls = 0; polls < 100000 && IDLE_TIMER_VALUE != 0; polls++)
-        noverii_idle();
-    IDLE_TIMER_CONTROL = 0;
-    IDLE_TIMER_CONTROL = control & 0x7F;
-    IDLE_TIMER_LOAD = load;
-    IDLE_TIMER_CONTROL = control;
-}
-
-/* Writes the clock register NoverII's way: interrupts on meanwhile. */
-static void write_clock_with_os(uint32_t value)
-{
-    int mask = TCT_Local_Control_Interrupts(0);
-    CLOCK_CONTROL = value;
-    noverii_msleep(1);
-    TCT_Local_Control_Interrupts(mask);
-}
-
-/* Idles the CPU for 'ticks' of 32768 Hz the way Ndless's msleep does: the
- * second timer counts down once, and its interrupt, the only one let
- * through, wakes the CPU. Waiting for an interrupt works with interrupts off
- * in the CPU, so they stay off and no OS code runs. The timer and the
- * interrupt controller are put back as they were. */
-static void idle_cpu(uint32_t ticks)
-{
-    uint32_t cpsr = interrupts_off();
-    uint32_t control = IDLE_TIMER_CONTROL, load = IDLE_TIMER_LOAD, enabled = IRQ_ENABLE;
-
-    IDLE_TIMER_CONTROL = 0;
-    IDLE_TIMER_CLEAR = 1;
-    IDLE_TIMER_LOAD = ticks;
-    IDLE_TIMER_CONTROL = 0x63;   /* one-shot, 32-bit, interrupt on, stopped */
-    IDLE_TIMER_CONTROL = 0xE3;   /* running */
-    IRQ_DISABLE = ~IDLE_TIMER_IRQ;
-    IRQ_ENABLE = IDLE_TIMER_IRQ;
-    while (!(IDLE_TIMER_RAW & 1))
-        __asm__ volatile ("mcr p15, 0, %0, c7, c10, 4\n\t"   /* drain the write buffer */
-                          "mcr p15, 0, %0, c7, c0, 4"        /* wait for interrupt */
-                          : : "r" (0) : "memory");
-    IRQ_DISABLE = 0xFFFFFFFF;
-    IRQ_ENABLE = enabled;
-    IDLE_TIMER_CONTROL = 0;
-    IDLE_TIMER_CLEAR = 1;
-    IDLE_TIMER_CONTROL = control & 0x7F;
-    IDLE_TIMER_LOAD = load;
-    IDLE_TIMER_CONTROL = control;
-    interrupts_restore(cpsr);
-}
+/* The OS's LCD buffer is on-chip memory there. */
+#define ON_CHIP_LCD_START 0xA8000000
+#define ON_CHIP_LCD_END   0xA8040000
 
 /* The CPU clock in MHz (rounded), from a loop of 4 * 'loops' cycles timed
  * with the 32 kHz timer: on the ARM926EJ-S, SUBS takes 1 cycle and a taken
@@ -806,45 +747,108 @@ static int clock_matches(uint32_t mhz, int multiplier)
 static uint32_t os_clock_control;   /* the OS's setting, put back after a raised one */
 static int clock_raised;
 static uint32_t clock_mhz;          /* measured after the last switch, 0 if none */
-static int clock_needs_os;          /* only NoverII's way has worked */
 
 /* The last switch, for the speed test results. */
 static struct
 {
-    uint32_t before, written, after, interrupts, mhz, quiet_mhz;
-    int ways;   /* 1: interrupts off, 2: NoverII's way, 3: both tried */
+    uint32_t before, target, after, result, ticks, mhz;
+    const char *refused;   /* why it wasn't tried, or NULL */
 } last_switch;
 
-/* Switches the clock, the quiet way first unless only NoverII's has worked.
- * Returns the measured clock in MHz, 0 if it can't be measured. */
+static void sync_code(void)
+{
+    __asm__ volatile ("mcr p15, 0, %0, c7, c10, 4\n\t"   /* drain the write buffer */
+                      "mcr p15, 0, %0, c7, c5, 0"        /* invalidate the instruction cache */
+                      : : "r" (0) : "memory");
+}
+
+/* Points the LCD at the OS's buffer, with the picture on the screen copied
+ * there first, and waits until it reads from there. Returns 0 if it can't
+ * (then normal memory mustn't sleep). */
+static int lcd_to_on_chip(void)
+{
+    if (os_framebuffer < ON_CHIP_LCD_START || os_framebuffer >= ON_CHIP_LCD_END)
+        return 0;
+    if (LCD_BASE != os_framebuffer)
+    {
+        /* The OS's buffer turns what is written into it (see the top). */
+        memcpy((void *) os_framebuffer, platform_screen(), SCREEN_PIXELS * 2);
+        clean_dcache((const void *) os_framebuffer, SCREEN_PIXELS * 2);
+        LCD_BASE = os_framebuffer;
+    }
+    uint32_t since = platform_ticks();
+    for (int polls = 0; polls < 4000000; polls++)
+    {
+        uint32_t reading = LCD_CURRENT;
+        if (reading >= os_framebuffer && reading < os_framebuffer + SCREEN_PIXELS * 2)
+            return 1;
+        if (platform_ticks() - since > tick_hz / 10)
+            break;
+    }
+    return 0;
+}
+
+/* Switches the clock register to 'value' (only its multiplier may differ
+ * from the register's now) the OS's way. Returns the measured clock in MHz,
+ * 0 if it can't be measured. */
 static uint32_t switch_clock(uint32_t value)
 {
-    int multiplier = CLOCK_MULTIPLIER(value);
-    uint32_t mhz = 0;
+    static uint8_t saved[1024];
+    size_t size = (size_t) (clock_switch_code_end - clock_switch_code);
+    uint32_t now = CLOCK_CONTROL, lcd = LCD_BASE;
 
+    /* Already there (e.g. back to normal after a raise that didn't happen):
+     * the last switch stays on record for the speed test. */
+    if (now == value)
+        return measure_mhz(QUICK_LOOPS);
+    last_switch.before = now;
+    last_switch.target = value;
+    last_switch.result = last_switch.ticks = 0;
+    last_switch.refused = NULL;
     dma_finish();   /* no frame copy runs across the switch */
-    last_switch.before = CLOCK_CONTROL;
-    last_switch.written = value;
-    last_switch.ways = 0;
-    last_switch.quiet_mhz = 0;
-    if (!clock_needs_os)
+    if (size > sizeof(saved))
+        last_switch.refused = "switch code too big";
+    else if ((now & ~(0x3Fu << 24)) != (value & ~(0x3Fu << 24)) || (now & 0xFF) != 0x03)
+        last_switch.refused = "clock register in an unknown mode";
+    else if ((PMU_COMMAND & ~0x100u) != 0x10000000)
+        last_switch.refused = "power controller in an unknown state";
+    else if (MEMC_STATE & 0x400)
+        last_switch.refused = "memory asleep";
+    else if (!lcd_to_on_chip())
+        last_switch.refused = "LCD reads normal memory";
+
+    if (!last_switch.refused)
     {
-        CLOCK_CONTROL = value;
-        idle_cpu(33);
-        mhz = measure_mhz(QUICK_LOOPS);
-        last_switch.quiet_mhz = mhz;
-        last_switch.ways = 1;
+        uint32_t cpsr = interrupts_off();
+        uint32_t control = T2_CONTROL, load = T2_LOAD, speed = T2_SPEED;
+        T2_CONTROL = 0;
+        T2_SPEED = 0xA;   /* 32768 Hz, like the first timer */
+        memcpy(saved, SWITCH_SRAM, size);
+        memcpy(SWITCH_SRAM, clock_switch_code, size);
+        sync_code();
+        uint32_t start = platform_ticks();
+        last_switch.result = ((uint32_t (*)(uint32_t, uint32_t)) SWITCH_SRAM)(value, SWITCH_STEP_TICKS);
+        last_switch.ticks = platform_ticks() - start;
+        memcpy(SWITCH_SRAM, saved, size);
+        sync_code();
+        T2_CONTROL = 0;
+        T2_CLEAR = 1;
+        T2_SPEED = speed;
+        T2_CONTROL = control & 0x7F;
+        T2_LOAD = load;
+        T2_CONTROL = control;
+        interrupts_restore(cpsr);
+        LCD_BASE = lcd;
     }
-    if (timer_works && !clock_matches(mhz, multiplier))
-    {
-        write_clock_with_os(value);
-        mhz = measure_mhz(QUICK_LOOPS);
-        last_switch.ways |= 2;
-        if (clock_matches(mhz, multiplier) && last_switch.ways == 3)
-            clock_needs_os = 1;
-    }
+
+    uint32_t mhz = measure_mhz(QUICK_LOOPS);
+    /* A step that didn't happen leaves the register ahead of the clock: it
+     * is set to the clock the CPU runs at, so the OS's own switches (when
+     * it idles) start from the truth. */
+    int running = (int) ((mhz + 6) / 12);
+    if (mhz && !clock_matches(mhz, CLOCK_MULTIPLIER(CLOCK_CONTROL)) && clock_matches(mhz, running))
+        CLOCK_CONTROL = (CLOCK_CONTROL & ~(0x3Fu << 24)) | (uint32_t) running << 24;
     last_switch.after = CLOCK_CONTROL;
-    last_switch.interrupts = PMU_INTERRUPTS;
     last_switch.mhz = mhz;
     return mhz;
 }
@@ -870,8 +874,8 @@ uint32_t platform_set_cpu_multiplier(int multiplier)
     }
     if (!clock_raised)
         os_clock_control = CLOCK_CONTROL;
-    uint32_t value = ((os_clock_control & ~(0x3Fu << 24)) | (uint32_t) multiplier << 24 | 1) & ~(1u << 4);
-    if (!clock_raised || value != last_switch.written)
+    uint32_t value = (os_clock_control & ~(0x3Fu << 24)) | (uint32_t) multiplier << 24;
+    if (!clock_raised || value != CLOCK_CONTROL)
         clock_mhz = switch_clock(value);
     clock_raised = 1;
     return clock_now_mhz();
@@ -898,18 +902,25 @@ void platform_clock_report(char *text, size_t size)
     }
     snprintf(text, size, "clock register %08lx (x%d)", (unsigned long) CLOCK_CONTROL,
              CLOCK_MULTIPLIER(CLOCK_CONTROL));
-    if (last_switch.written)
-    {
-        size_t len = strlen(text);
+    if (!last_switch.target)
+        return;
+    size_t len = strlen(text);
+    if (last_switch.refused)
+        snprintf(text + len, size - len, "; last switch %08lx -> %08lx not tried: %s, %lu MHz",
+                 (unsigned long) last_switch.before, (unsigned long) last_switch.target,
+                 last_switch.refused, (unsigned long) last_switch.mhz);
+    else
         snprintf(text + len, size - len,
-                 "; last switch %08lx -> %08lx, read back %08lx, power interrupts %08lx, "
-                 "%s: %lu MHz%s",
-                 (unsigned long) last_switch.before, (unsigned long) last_switch.written,
-                 (unsigned long) last_switch.after, (unsigned long) last_switch.interrupts,
-                 last_switch.ways == 1 ? "interrupts off" : last_switch.ways == 2 ? "NoverII's way"
-                 : "interrupts off, then NoverII's way",
-                 (unsigned long) last_switch.mhz, clock_needs_os ? " (NoverII's way from now on)" : "");
-    }
+                 "; last switch %08lx -> %08lx: %lu steps%s%s%s%s in %lu.%02lu ms, register %08lx, %lu MHz",
+                 (unsigned long) last_switch.before, (unsigned long) last_switch.target,
+                 (unsigned long) (last_switch.result & 0xFF),
+                 last_switch.result & 0x100 ? ", memory didn't sleep" : "",
+                 last_switch.result & 0x200 ? ", a step timed out" : "",
+                 last_switch.result & 0x400 ? ", memory didn't wake" : "",
+                 last_switch.result & 0x800 ? ", power interrupt stuck" : "",
+                 (unsigned long) (last_switch.ticks * 1000 / tick_hz),
+                 (unsigned long) (last_switch.ticks * 100000 / tick_hz % 100),
+                 (unsigned long) last_switch.after, (unsigned long) last_switch.mhz);
 }
 
 uint32_t platform_cpu_mhz(void)
@@ -988,45 +999,29 @@ static void write_cpu_report(FILE *f)
     }
 }
 
-/* How the clock switch behaves (see "CPU clock"): a small raise, two steps
- * of 12 MHz, is written and the clock measured after a busy wait, then again
- * after the CPU idled; then the old setting is put back. */
+/* The clock's registers, and a small raise (two steps of 12 MHz) and back,
+ * the way PocketSNES switches (see "CPU clock"). */
 static void write_clock_report(FILE *f)
 {
     if (!is_cx2)
         return;
     uint32_t original = CLOCK_CONTROL;
     int multiplier = CLOCK_MULTIPLIER(original);
-    fprintf(f, "Clock register %08lx (x%d), 0x90140020 %08lx, 0x90140810 %08lx, power interrupts %08lx; "
-            "interrupt controller: raw %08lx, enabled %08lx\n",
-            (unsigned long) original, multiplier, (unsigned long) *(volatile uint32_t *) 0x90140020,
-            (unsigned long) *(volatile uint32_t *) 0x90140810, (unsigned long) PMU_INTERRUPTS,
-            (unsigned long) IRQ_RAW, (unsigned long) IRQ_ENABLE);
+    fprintf(f, "Clock register %08lx (x%d); power controller 20 %08lx, 24 %08lx, 810 %08lx; "
+            "memory controller 04 %08lx, 1C %08lx, 74 %08lx; second timer speed %08lx\n",
+            (unsigned long) original, multiplier, (unsigned long) PMU_COMMAND, (unsigned long) PMU_FLAGS,
+            (unsigned long) *(volatile uint32_t *) 0x90140810, (unsigned long) MEMC_STATE,
+            (unsigned long) *(volatile uint32_t *) 0x9012001C, (unsigned long) *(volatile uint32_t *) 0x90120074,
+            (unsigned long) T2_SPEED);
     if (multiplier < 20 || multiplier > 36 || !timer_works)
         return;
 
-    uint32_t value = ((original & ~(0x3Fu << 24)) | (uint32_t) (multiplier + 2) << 24 | 1) & ~(1u << 4);
-    uint32_t before = measure_mhz(QUICK_LOOPS);
-    dma_finish();
-    uint32_t cpsr = interrupts_off();
-    CLOCK_CONTROL = value;
-    uint32_t start = platform_ticks();
-    while (platform_ticks() - start < tick_hz / 500)   /* 2 ms */
-        ;
-    interrupts_restore(cpsr);
-    uint32_t busy = measure_mhz(QUICK_LOOPS);
-    uint32_t busy_register = CLOCK_CONTROL, busy_interrupts = PMU_INTERRUPTS, busy_raw = IRQ_RAW;
-    idle_cpu(33);
-    uint32_t idled = measure_mhz(QUICK_LOOPS);
-    uint32_t idle_register = CLOCK_CONTROL, idle_interrupts = PMU_INTERRUPTS, idle_raw = IRQ_RAW;
-    uint32_t back = switch_clock(original);
-    fprintf(f, "Clock switch test, x%d to x%d: %lu MHz before; wrote %08lx; after a 2 ms busy wait %lu MHz "
-            "(register %08lx, power interrupts %08lx, raw interrupts %08lx); after a 1 ms idle %lu MHz "
-            "(register %08lx, power interrupts %08lx, raw interrupts %08lx); put back: %lu MHz\n",
-            multiplier, multiplier + 2, (unsigned long) before, (unsigned long) value, (unsigned long) busy,
-            (unsigned long) busy_register, (unsigned long) busy_interrupts, (unsigned long) busy_raw,
-            (unsigned long) idled, (unsigned long) idle_register, (unsigned long) idle_interrupts,
-            (unsigned long) idle_raw, (unsigned long) back);
+    char up[200], back[200];
+    switch_clock((original & ~(0x3Fu << 24)) | (uint32_t) (multiplier + 2) << 24);
+    platform_clock_report(up, sizeof(up));
+    switch_clock(original);
+    platform_clock_report(back, sizeof(back));
+    fprintf(f, "Clock switch test, x%d to x%d and back:\n  %s\n  %s\n", multiplier, multiplier + 2, up, back);
 }
 
 static void write_dma_report(FILE *f)

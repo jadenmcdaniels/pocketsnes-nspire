@@ -77,6 +77,59 @@ The CPU clock
 * Seen: the 0x900C0000 timer runs at 32768 Hz on the CX II (checked against
   the real-time clock).
 
+### Switching the clock (2026-10-06)
+
+* Seen (tools/clocktest, first version): writing a new multiplier into
+  0x90140030 changes nothing. The register reads the new value back, but the
+  CPU keeps its speed: x33 -> x35 stayed 396 MHz on battery, x24 -> x26
+  stayed 288 MHz on USB, whether the write was followed by a busy wait, by
+  idling the CPU (wait for interrupt), by clearing the power controller's
+  flags, or done NoverII's way (interrupts on, Ndless's old msleep(1)).
+  NoverII is reported working on OS 5.2; on this calculator (OS 6.4, boot2
+  6.20.7) it can't be.
+* Seen: the OS keeps its clock code in the on-chip SRAM (0xA4001000 to
+  0xA40019FF, the same in every dump), called with the stack and the code
+  away from normal memory:
+  * 0xA4001640 puts normal memory into self-refresh: drain the write buffer;
+    if bit 10 of memory controller register 4 (0x90120004) is clear, write 4
+    there and wait until bit 2 clears. 0xA40016C4 wakes it: if bit 10 is
+    set, write 8 and wait until bit 3 clears, then 8 NOPs.
+  * 0xA4001678 is one step: write 0x90140030; save the interrupt
+    controller's enables, enable only the power controller's interrupt (15);
+    write 0x10000100 into 0x90140020; wait for interrupt; write 0x90140024
+    with its own value (clears the flags); put the enables back.
+  * 0xA40016F4, 0xA40017B0 and 0xA4001890 step through a table in normal
+    memory (0x10AB9E3C: frequency, register value) inside one self-refresh:
+    32 (0x04030003), 96 (0x08020103), 156 (0x0D020203), 240 (0x14020303),
+    276 (0x17020303), 336 MHz (0x1C020303), then the target. Afterwards they
+    write memory controller registers 0x74 (0x55 at 396 MHz, 0x11 at 32 MHz)
+    and 0x1C (always 0x502), wait 550 us and wake the memory. 0xA4001890 is
+    the OS idling: down to 32 MHz, wait for interrupt, back up.
+  * Bits 8-9 of the register grow with the frequency (0, 1, 2, then 3 from
+    240 MHz on); everything from 240 MHz up, overclocks included, uses
+    0x..020303.
+  * Other values for 0x90140020: 0x80000040 (with the low byte of 0x90140030
+    set to 0x10 or 0x01, around standby), 0x80000008 (standby, wakes on an
+    interrupt), 2 (off: 0xA4001000 cleans the cache, turns the MMU off,
+    writes it and loops). 0x90140020 reads 0x10000000 otherwise.
+  * 0xA400004C is an interrupt handler that only clears 0x90140024 and
+    acknowledges the interrupt controller.
+* Seen (tools/clocktest, second version, battery): doing the same (one
+  multiplier step at a time, from the SRAM, with interrupts off) works:
+  396 -> 372 -> 396 MHz and 396 -> 420 -> 396 MHz, each measured by timing
+  a loop. A step takes about 0.15 ms; the whole switch with the 600 us wait
+  about 0.9 ms. When a step is done, 0x90140024 has bit 8 set and the
+  interrupt controller's raw status bit 15. Bit 28 of 0x90140024 was set
+  before any switch on battery (not on USB); it isn't the switch.
+* Seen: the interrupt controller's raw bit 19 (the second timer) can be on
+  already when a switch starts, from the OS's tick (the OS runs that timer
+  periodic, control 0xE6, with its interrupt on), so the switch only takes
+  the timer's own flag (0x900D0010) as "time's up".
+* PocketSNES does this (clock_switch_nspire.S, platform_nspire.cpp "CPU
+  clock"), with the LCD pointed at the OS's buffer (on-chip memory) while
+  normal memory sleeps, and measures the clock after every switch. Not yet
+  seen in a game on the calculator.
+
 
 Where the time goes
 -------------------
@@ -141,7 +194,12 @@ Memory
   at the next system call; the calculator needs a reset. So the first 16 KB
   must be left alone. The rest is the boot loader's leftovers (boot2
   5.0.0.42: its log, e.g. "Clocks: CPU = 396 MHz AHB = 198 MHz APB = 99
-  MHz", and its Nucleus kernel's data).
+  MHz", and its Nucleus kernel's data), except:
+* Seen (2026-10-06): the MMU's page table is in the SRAM, at 0xA4004000 to
+  0xA4007FFF (translation table base 0xA4004000; its entries match what
+  mmu_lookup reads, e.g. 0x10000C1E for normal memory, 0xA4000C1A for the
+  SRAM, and the zero ones are unmapped addresses). The OS's clock code is at
+  0xA4001000 (see "Switching the clock").
 * Seen: speeds drawing 8x8 tiles the way the renderer does (CPU cycles per
   pixel, 395 MHz):
 
@@ -212,9 +270,11 @@ Ideas not tried yet
   exit), frames copied to the LCD from there, the renderer waiting for the
   copy to pass the lines it draws. The first try wiped the exception vectors
   (above). The second left the first 16 KB alone and still gave a black
-  screen and a freeze, in both the game and the speed test; the cause isn't
-  known. The speed test now checks, without writing to the SRAM, whether the
-  DMA controller can read it at all.
+  screen and a freeze, in both the game and the speed test. Likely cause
+  (found 2026-10-06): it started at 0xA4004000 and wiped the MMU's page
+  table, which is there. Not tried again since. The speed test now checks,
+  without writing to the SRAM, whether the DMA controller can read it at
+  all.
 * Seen (user): Yoshi's Island (Super FX) glitches in the top rows of the
   picture, in the old build too, so it comes from the emulator core.
 
@@ -319,12 +379,10 @@ Where things stand (2026-10-05)
   build measures it against the real-time clock with nothing else running,
   for the report). One run with USB plugged in read 287 MHz (clock register
   x24), which is real: the OS lowers the clock on USB.
-* CPU speed setting (432/456/480 MHz, the NoverII way: multiplier in bits
-  24-29 of 0x90140030, bit 0 set, bit 4 cleared, 1 ms wait with interrupts
-  off): not confirmed on the calculator. The user thinks it doesn't work;
-  the one run on record didn't show it, but the setting may have been
-  turned on after that run. To check: run the menu speed test with it on
-  and look for "clock register x40" in the results.
+* CPU speed setting (432/456/480 MHz): it didn't work (writing the
+  register isn't enough, see "Switching the clock"). Since 2026-10-06 it
+  switches the OS's way, which tools/clocktest showed working on the
+  calculator.
 * NoverII also has a bus divider (0x90140020 bits 20-23) and a bit in
   0x90140810 (bit 4, set when that divider isn't 0); PocketSNES doesn't
   touch them.
