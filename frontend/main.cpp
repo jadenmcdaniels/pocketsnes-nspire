@@ -7,6 +7,7 @@
 #include "emu.h"
 #include "gui.h"
 #include "menu.h"
+#include "overclock.h"
 #include "platform.h"
 #include "states.h"
 
@@ -57,8 +58,10 @@ int main(int argc, char **argv)
         char line[64];
         config_reset_cpu_speed(crashed_rom);
         snprintf(line, sizeof(line), "PocketSNES didn't close normally at %d MHz.", crashed_multiplier * 12);
-        gui_message(line, "CPU speed is back to normal (Graphics/performance).");
+        gui_message(line, "CPU speed is back to normal (Graphics & speed).");
     }
+    /* The overclock test froze: it keeps the highest speed that passed. */
+    overclock_check_freeze();
 
 #ifdef AUTO_BENCH
     run_benchmark();

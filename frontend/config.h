@@ -56,18 +56,33 @@ enum FrameskipType
 
 #define MAX_FRAMESKIP_VALUE 9
 
-/* CPU speeds (cfg.cpu_speed): the calculator's own, then raised ones. */
+/* CPU speeds (cfg.cpu_speed): the calculator's own, the highest one the
+ * overclock test passed, then raised ones in steps of 12 MHz. */
 enum CpuSpeed
 {
     CPU_SPEED_NORMAL,
+    CPU_SPEED_TESTED,
+    CPU_SPEED_408,
+    CPU_SPEED_420,
     CPU_SPEED_432,
+    CPU_SPEED_444,
     CPU_SPEED_456,
+    CPU_SPEED_468,
     CPU_SPEED_480,
+    CPU_SPEED_492,
+    CPU_SPEED_504,
     NUM_CPU_SPEEDS
 };
 
-/* The multiplier of 12 MHz for a raised speed, 0 for the normal one. */
+/* The multiplier of 12 MHz for a raised speed, 0 for the normal one (and for
+ * "highest tested" before the overclock test has passed a speed). */
 int config_cpu_multiplier(uint32_t cpu_speed);
+
+/* The highest speed in MHz the overclock test passed on this calculator, 0
+ * if none. Kept in the settings for all games; set it with
+ * config_set_tested_mhz, which saves. */
+uint32_t config_tested_mhz(void);
+void config_set_tested_mhz(uint32_t mhz);
 
 struct Config
 {

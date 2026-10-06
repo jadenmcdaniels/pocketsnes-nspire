@@ -105,7 +105,7 @@ check "$(exists "$s.sv001.tns")$(exists "$s.sv002.tns")" yesno "without auto-inc
 setup old MonsterFarmJump.sfc auto_increment=0 auto_resume=0 show_fps=1 key_a=6
 play old tests/scripts/wait_quit.txt MonsterFarmJump.sfc
 cfg=$OUT/old/ndless/pocketsnes.cfg.tns
-check "$(grep -c -e '^config_version=2$' -e '^auto_increment=1$' -e '^save_on_exit=1$' -e '^load_on_start=1$' \
+check "$(grep -c -e '^config_version=3$' -e '^auto_increment=1$' -e '^save_on_exit=1$' -e '^load_on_start=1$' \
     -e '^show_fps=1$' -e '^key_a=6$' "$cfg")" 6 "an old settings file is brought up to date and keeps its choices"
 
 echo "== Keys"
@@ -132,8 +132,8 @@ forever=$(realpath tests/scripts/forever.txt)
 setup clock MonsterFarmJump.sfc config_version=2 cpu_speed=3 save_on_exit=0 load_on_start=0
 play clock tests/scripts/wait_quit.txt MonsterFarmJump.sfc
 marker=$OUT/clock/ndless/pocketsnes_clock.tns
-check "$(exists "$marker")$(grep -c '^cpu_speed=3$' "$OUT/clock/ndless/pocketsnes.cfg.tns")" no1 \
-    "leaving a game normally removes the raised-speed marker and keeps the setting"
+check "$(exists "$marker")$(grep -c '^cpu_speed=8$' "$OUT/clock/ndless/pocketsnes.cfg.tns")" no1 \
+    "leaving a game normally removes the raised-speed marker and keeps the setting (480 MHz, renumbered)"
 # A freeze while playing at a raised speed: the run is killed.
 (cd "$OUT/clock" && timeout -s KILL 3 "$HOST" --script "$forever" \
     --shots shots --exe-dir ndless roms/MonsterFarmJump.sfc.tns >/dev/null 2>&1)
@@ -168,6 +168,35 @@ check "$(clock_log "$OUT/clockstuck/log.txt")" \
     "a clock that doesn't reach the speed goes back to normal and says so"
 check "$(exists "$OUT/clockstuck/ndless/pocketsnes_clock.tns")" no "... and leaves no freeze marker"
 
+echo "== Overclock test"
+# From the game list's settings, on a PC acting like a calculator that
+# doesn't go past 444 MHz: 408 to 444 pass, 456 doesn't switch.
+setup octest MonsterFarmJump.sfc
+octest_script=$(realpath tests/scripts/overclock_test.txt)
+(cd "$OUT/octest" && "$HOST" --script "$octest_script" --shots shots \
+    --exe-dir ndless --clock-limit 37 >/dev/null 2>&1)
+d=$OUT/octest/ndless
+check "$(grep -c '^highest_tested_mhz=444$' "$d/pocketsnes.cfg.tns")" 1 "the overclock test finds 444 MHz"
+check "$(grep -c -e '^456 MHz: didn.t switch' -e '^Highest tested speed: 444 MHz$' "$d/pocketsnes_overclock.txt.tns")" 2 \
+    "... and writes what happened at each speed"
+check "$(exists "$d/pocketsnes_octest.tns")" no "... and leaves no marker"
+# The test froze the calculator at 456 MHz: the next start keeps 444.
+setup ocfreeze MonsterFarmJump.sfc config_version=3 highest_tested_mhz=0
+printf 'testing=456\npassed=444\n' > "$OUT/ocfreeze/ndless/pocketsnes_octest.tns"
+play ocfreeze tests/scripts/after_crash.txt
+check "$(grep -c '^highest_tested_mhz=444$' "$OUT/ocfreeze/ndless/pocketsnes.cfg.tns")$(exists "$OUT/ocfreeze/ndless/pocketsnes_octest.tns")" 1no \
+    "after a freeze in the overclock test, the next start keeps the highest speed that passed"
+# "highest tested" as the CPU speed uses the test's result.
+setup octested MonsterFarmJump.sfc config_version=3 cpu_speed=1 highest_tested_mhz=444 save_on_exit=0 load_on_start=0
+play_logged octested tests/scripts/wait_quit.txt MonsterFarmJump.sfc
+check "$(clock_log "$OUT/octested/log.txt")" "clock x37|message: CPU 444 MHz|clock x0|" \
+    "CPU speed \"highest tested\" runs the game at the tested 444 MHz"
+# Old settings files: 456 MHz was cpu_speed=2.
+setup ocold MonsterFarmJump.sfc config_version=2 cpu_speed=2 save_on_exit=0 load_on_start=0
+play ocold tests/scripts/wait_quit.txt MonsterFarmJump.sfc
+check "$(grep -c -e '^config_version=3$' -e '^cpu_speed=6$' "$OUT/ocold/ndless/pocketsnes.cfg.tns")" 2 \
+    "an older settings file keeps its CPU speed (456 MHz) under the new numbering"
+
 echo "== In-game saves (SRAM)"
 setup sram SramWrite.sfc
 (cd "$OUT/sram" && timeout -s KILL 4 "$HOST" --script "$forever" \
@@ -181,7 +210,7 @@ play menu tests/scripts/menu_options.txt MonsterFarmJump.sfc
 cfg=$OUT/menu/ndless/pocketsnes.cfg.tns
 check "$(grep -c -e '^auto_increment=0$' -e '^save_on_exit=0$' -e '^load_on_start=0$' -e '^show_fps=1$' "$cfg")" 4 \
     "menu turned off auto-increment, saving when leaving and loading on start, and the FPS counter on"
-check "$(grep -c -e '^screen_dma=1$' -e '^cpu_speed=1$' "$cfg")" 2 "menu set the screen output to DMA and the CPU speed to 432 MHz"
+check "$(grep -c -e '^screen_dma=1$' -e '^cpu_speed=4$' "$cfg")" 2 "menu set the screen output to DMA and the CPU speed to 432 MHz"
 check "$(grep -c -e '^key_a=6$' -e '^key_a_2=121+20$' -e '^key_save_state_2=121+23$' "$cfg")" 3 \
     "menu set A to Z and shift+3, and shift+S as a second key for Save state"
 play menu tests/scripts/menu_game_settings.txt MonsterFarmJump.sfc

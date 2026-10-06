@@ -42,7 +42,7 @@ FRONTEND_FLAGS = $(OPT) $(DEFINES) $(FRONTEND_INCLUDE) $(SDL_FLAGS) -Wall -Wextr
 
 CORE_SRC     = $(wildcard pocketsnes/snes9x/*.cpp)
 FRONTEND_SRC = frontend/keys.cpp frontend/draw.cpp frontend/ui.cpp frontend/config.cpp frontend/states.cpp \
-               frontend/gui.cpp frontend/browser.cpp frontend/menu.cpp frontend/emu.cpp \
+               frontend/gui.cpp frontend/browser.cpp frontend/menu.cpp frontend/overclock.cpp frontend/emu.cpp \
                frontend/main.cpp frontend/rotate.cpp frontend/platform_host.cpp
 
 CORE_OBJ     = $(patsubst %.cpp,$(BUILD)/%.o,$(CORE_SRC))

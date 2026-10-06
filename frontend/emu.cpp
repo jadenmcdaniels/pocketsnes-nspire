@@ -1158,7 +1158,7 @@ void emu_benchmark(void)
 
 /* ---- CPU speed ---- */
 
-/* A raised CPU speed (Graphics/performance) is only used while a game runs:
+/* A raised CPU speed (Graphics & speed) is only used while a game runs:
  * menus, the game list and file writes run at the calculator's own speed.
  * Too high a speed can freeze the calculator, so while a game runs raised, a
  * marker file names the speed and the game; leaving the game cleanly removes

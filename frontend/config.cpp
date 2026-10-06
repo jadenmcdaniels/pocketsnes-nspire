@@ -8,9 +8,11 @@
 
 /* Saved as "name=value" lines so older and newer builds can share the file.
  * Version 2 added the second key slots, key combinations, save_on_exit and
- * load_on_start (which replace auto_resume) and per-game files. */
+ * load_on_start (which replace auto_resume) and per-game files. Version 3
+ * numbers the CPU speeds differently (enum CpuSpeed) and adds
+ * highest_tested_mhz. */
 #define CONFIG_FILE "pocketsnes.cfg.tns"
-#define CONFIG_VERSION 2
+#define CONFIG_VERSION 3
 
 struct Config cfg;
 
@@ -20,6 +22,7 @@ static struct Config global;
 static char game_file[800];   /* the open game's own file, or "" */
 static int game_own_settings, game_own_keys;
 static int settings_file_found;
+static uint32_t tested_mhz;   /* the overclock test's result, for all games */
 
 const char *const action_names[NUM_ACTIONS] =
 {
@@ -130,12 +133,23 @@ static void write_binding(FILE *f, const char *id, int slot, struct Binding b)
         fprintf(f, "%u\n", (unsigned) b.key);
 }
 
-/* What a file had in it, for working out version 1 files and per-game ones. */
+/* What a file had in it, for working out older files and per-game ones. */
 struct FileInfo
 {
     int found, version, own_settings, own_keys;
     int auto_resume;   /* version 1's setting, -1 if absent */
+    long cpu_speed;    /* as written, -1 if absent (its meaning depends on the version) */
+    long tested_mhz;   /* -1 if absent */
 };
+
+/* Version 1 and 2 files had normal, 432, 456 and 480 MHz. */
+static uint32_t cpu_speed_from_file(long value, int version)
+{
+    static const uint32_t old_speeds[] = { CPU_SPEED_NORMAL, CPU_SPEED_432, CPU_SPEED_456, CPU_SPEED_480 };
+    if (version < 3)
+        return old_speeds[clamp(value, 3)];
+    return clamp(value, NUM_CPU_SPEEDS - 1);
+}
 
 /* Reads "name=value" lines into c, over whatever it holds. */
 static void read_file(const char *path, struct Config *c, struct FileInfo *info)
@@ -145,6 +159,7 @@ static void read_file(const char *path, struct Config *c, struct FileInfo *info)
     memset(info, 0, sizeof(*info));
     info->version = 1;
     info->auto_resume = -1;
+    info->cpu_speed = info->tested_mhz = -1;
     FILE *f = fopen(path, "r");
     if (!f)
         return;
@@ -184,7 +199,9 @@ static void read_file(const char *path, struct Config *c, struct FileInfo *info)
         else if (strcmp(line, "screen_dma") == 0)
             c->screen_dma = clamp(number, 1);
         else if (strcmp(line, "cpu_speed") == 0)
-            c->cpu_speed = clamp(number, NUM_CPU_SPEEDS - 1);
+            info->cpu_speed = number;
+        else if (strcmp(line, "highest_tested_mhz") == 0)
+            info->tested_mhz = number;
         else if (strcmp(line, "rom_dir") == 0)
             snprintf(c->rom_dir, sizeof(c->rom_dir), "%s", value);
         else if (strncmp(line, "key_", 4) == 0)
@@ -199,6 +216,8 @@ static void read_file(const char *path, struct Config *c, struct FileInfo *info)
         }
     }
     fclose(f);
+    if (info->cpu_speed >= 0)
+        c->cpu_speed = cpu_speed_from_file(info->cpu_speed, info->version);
 }
 
 void config_load(void)
@@ -214,6 +233,7 @@ void config_load(void)
     config_path(path, sizeof(path));
     read_file(path, &global, &info);
     settings_file_found = info.found;
+    tested_mhz = info.tested_mhz > 0 && info.tested_mhz <= 756 ? (uint32_t) info.tested_mhz : 0;
     if (info.found && info.version < 2)
     {
         /* Version 1 always wrote auto_increment, so its old default (off)
@@ -266,6 +286,7 @@ void config_save(void)
     {
         fprintf(f, "config_version=%d\n", CONFIG_VERSION);
         write_settings(f, &global);
+        fprintf(f, "highest_tested_mhz=%u\n", (unsigned) tested_mhz);
         fprintf(f, "rom_dir=%s\n", global.rom_dir);
         write_keys(f, &global);
         fclose(f);
@@ -392,8 +413,22 @@ void config_set_game_keys(int own)
 
 int config_cpu_multiplier(uint32_t cpu_speed)
 {
-    static const int multipliers[NUM_CPU_SPEEDS] = { 0, 36, 38, 40 };
-    return cpu_speed < NUM_CPU_SPEEDS ? multipliers[cpu_speed] : 0;
+    if (cpu_speed == CPU_SPEED_TESTED)
+        return (int) (tested_mhz / 12);
+    if (cpu_speed >= CPU_SPEED_408 && cpu_speed < NUM_CPU_SPEEDS)
+        return 34 + (int) (cpu_speed - CPU_SPEED_408);
+    return 0;
+}
+
+uint32_t config_tested_mhz(void)
+{
+    return tested_mhz;
+}
+
+void config_set_tested_mhz(uint32_t mhz)
+{
+    tested_mhz = mhz;
+    config_save();
 }
 
 void config_reset_cpu_speed(const char *rom_path)

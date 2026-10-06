@@ -19,8 +19,9 @@
  * key number. The script quits when it runs out of lines.
  *
  * For the tests, --log FILE appends a line to FILE for every CPU clock
- * change asked for and every message shown in the game, and --stuck-clock
- * acts like a calculator whose clock doesn't change when asked. */
+ * change asked for and every message shown in the game, --stuck-clock acts
+ * like a calculator whose clock doesn't change when asked, and
+ * --clock-limit N like one that doesn't go past multiplier N (12N MHz). */
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,7 @@ static struct { int key; int polls; } releases[16];
 static char shots_dir[1024] = ".";
 static char log_path[1024];
 static int clock_stuck;
+static int clock_limit = 63;
 
 #ifdef HOST_SDL
 static SDL_Window *window;
@@ -284,6 +286,8 @@ int platform_init(int *argc, char **argv)
             snprintf(log_path, sizeof(log_path), "%s", argv[++i]);
         else if (strcmp(argv[i], "--stuck-clock") == 0)
             clock_stuck = 1;
+        else if (strcmp(argv[i], "--clock-limit") == 0 && i + 1 < *argc)
+            clock_limit = atoi(argv[++i]);
         else
             argv[out++] = argv[i];
     }
@@ -462,7 +466,7 @@ uint32_t platform_set_cpu_multiplier(int multiplier)
         platform_log(line);
     }
     cpu_multiplier = multiplier;
-    return multiplier && !clock_stuck ? (uint32_t) multiplier * 12 : 396;
+    return multiplier && !clock_stuck && multiplier <= clock_limit ? (uint32_t) multiplier * 12 : 396;
 }
 
 uint32_t platform_cpu_normal_mhz(void)

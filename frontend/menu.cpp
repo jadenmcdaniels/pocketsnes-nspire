@@ -7,6 +7,7 @@
 #include "gui.h"
 #include "bindings.h"
 #include "menu.h"
+#include "overclock.h"
 #include "platform.h"
 #include "states.h"
 #include "ui.h"
@@ -56,6 +57,7 @@ struct Option
     void (*changed)(void);         /* called after a choice or number changes */
     int action_id;                 /* OPTION_BINDING */
     int icon;
+    const char *shown = nullptr;   /* OPTION_ACTION: text shown at the right, or NULL */
 };
 
 struct Menu
@@ -138,6 +140,15 @@ static enum Step run_speed_test(void)
     return STEP_STAY;
 }
 
+static void update_speed_names(void);
+
+static enum Step run_overclock_test(void)
+{
+    overclock_test_run();
+    update_speed_names();
+    return STEP_STAY;
+}
+
 static enum Step load_new_game(void) { return STEP_NEW_GAME; }
 static enum Step return_to_game(void) { return STEP_RESUME; }
 static enum Step exit_app(void) { return STEP_EXIT; }
@@ -167,9 +178,35 @@ static const char *const fps_modes[] = { "off", "on", "detailed" };
 static const char *const sram_write_modes[] = { "on exit", "automatic" };
 static const char *const scopes[] = { "all games", "this game" };
 static const char *const screen_outputs[] = { "no tearing", "DMA" };
-/* "normal" shows the calculator's own clock (288 MHz while USB is plugged in). */
+/* "normal" shows the calculator's own clock (288 MHz while USB is plugged
+ * in), "highest tested" the overclock test's result. */
 static char normal_cpu_speed[24] = "normal";
-static const char *const cpu_speeds[] = { normal_cpu_speed, "432 MHz", "456 MHz", "480 MHz" };
+static char tested_cpu_speed[32] = "highest tested";
+static char tested_result[24] = "no result";
+static const char *const cpu_speeds[] =
+{
+    normal_cpu_speed, tested_cpu_speed, "408 MHz", "420 MHz", "432 MHz", "444 MHz", "456 MHz",
+    "468 MHz", "480 MHz", "492 MHz", "504 MHz"
+};
+static_assert(sizeof(cpu_speeds) / sizeof(cpu_speeds[0]) == NUM_CPU_SPEEDS, "a name for each CPU speed");
+
+static void update_speed_names(void)
+{
+    if (platform_cpu_normal_mhz())
+        snprintf(normal_cpu_speed, sizeof(normal_cpu_speed), "normal (%u MHz)",
+                 (unsigned) platform_cpu_normal_mhz());
+    uint32_t tested = config_tested_mhz();
+    if (tested)
+    {
+        snprintf(tested_cpu_speed, sizeof(tested_cpu_speed), "highest tested (%u MHz)", (unsigned) tested);
+        snprintf(tested_result, sizeof(tested_result), "%u MHz", (unsigned) tested);
+    }
+    else
+    {
+        snprintf(tested_cpu_speed, sizeof(tested_cpu_speed), "highest tested (none)");
+        snprintf(tested_result, sizeof(tested_result), "no result");
+    }
+}
 
 #define CHOICE(label, help, line, value, choices, max, icon) \
     { OPTION_CHOICE, label, help, line, value, choices, max, NULL, NULL, NULL, 0, icon }
@@ -194,23 +231,26 @@ static const char *const cpu_speeds[] = { normal_cpu_speed, "432 MHz", "456 MHz"
            "No tearing (best): every frame shows whole. DMA: slightly faster, but it can tear.", \
            3, &cfg.screen_dma, screen_outputs, 1, ICON_NONE), \
     CHOICE("CPU speed", \
-           "Overclocks the CX II while playing; the game shows what it got. A freeze resets it.", \
-           4, &cfg.cpu_speed, cpu_speeds, NUM_CPU_SPEEDS - 1, ICON_NONE)
+           "Overclocks the CX II in games. Highest tested is what the overclock test passed.", \
+           4, &cfg.cpu_speed, cpu_speeds, NUM_CPU_SPEEDS - 1, ICON_NONE), \
+    { OPTION_ACTION, "Overclock test", \
+      "Finds this calculator's highest safe speed (408-504 MHz): about 2 minutes.", \
+      5, NULL, NULL, 0, run_overclock_test, NULL, NULL, 0, ICON_SPEED, tested_result }
 
 static struct Option graphics_options[] =
 {
     GRAPHICS_OPTIONS,
     ACTION("Run speed test",
            "Plays from here for about 35 seconds in five ways and shows the frame rates.",
-           6, run_speed_test, ICON_STAR),
-    BACK_OPTION(8),
+           7, run_speed_test, ICON_STAR),
+    BACK_OPTION(9),
 };
 
 /* The same from the game list, which has no game running to test. */
 static struct Option list_graphics_options[] =
 {
     GRAPHICS_OPTIONS,
-    BACK_OPTION(6),
+    BACK_OPTION(7),
 };
 
 static struct Option savestate_options[] =
@@ -386,6 +426,10 @@ static void option_value(const struct Option *option, char *text, size_t size)
         break;
     case OPTION_LOAD_SLOT:
         snprintf(text, size, "slot %03d  %s", emu_slot(), states_exists(emu_slot()) ? "saved" : "empty");
+        break;
+    case OPTION_ACTION:
+        if (option->shown)
+            snprintf(text, size, "%s", option->shown);
         break;
     case OPTION_SAVE_SLOT:
         if (!cfg.auto_increment)
@@ -835,9 +879,7 @@ static enum Step run(struct Menu *top)
     status[0] = 0;
     key_column = 0;
     waiting_for_keys = 0;
-    if (platform_cpu_normal_mhz())
-        snprintf(normal_cpu_speed, sizeof(normal_cpu_speed), "normal (%u MHz)",
-                 (unsigned) platform_cpu_normal_mhz());
+    update_speed_names();
     own_settings = (uint32_t) config_game_has_settings();
     own_keys = (uint32_t) config_game_has_keys();
 

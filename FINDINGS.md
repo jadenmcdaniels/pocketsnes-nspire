@@ -127,8 +127,14 @@ The CPU clock
   the timer's own flag (0x900D0010) as "time's up".
 * PocketSNES does this (clock_switch_nspire.S, platform_nspire.cpp "CPU
   clock"), with the LCD pointed at the OS's buffer (on-chip memory) while
-  normal memory sleeps, and measures the clock after every switch. Not yet
-  seen in a game on the calculator.
+  normal memory sleeps, and measures the clock after every switch.
+* Seen (user, in games, 2026-10-06): 432 MHz works, 456 MHz works only
+  sometimes, 480 MHz glitches and freezes (the freeze marker named x40). One
+  raise stopped at 420 MHz on the way up and fell back to normal (a step
+  that didn't finish). Others report 432-444 and 492 MHz as their limits;
+  the memory runs at half the CPU clock with timings set for 198 MHz, which
+  is the likely limit. The overclock test (overclock.cpp) finds each
+  calculator's highest speed without memory or CPU errors.
 
 
 Where the time goes
